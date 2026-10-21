@@ -132,21 +132,11 @@ namespace KitchenChaos.Gameplay
 
             if (cutTimer >= need)
             {
+                // 切好后留在台面上：玩家可空手按 E 取回，或端着盘子按 E 直接装盘。
+                // 这样切好多种食材后再统一去取盘组装，符合 Overcooked 的操作节奏。
                 placed.SetState(IngredientState.Cut);
-                // 加工完成后，若玩家空手则自动入手机，流程更顺手；否则留在台面待装盘/取回。
-                // 注意：必须先缓存玩家与结果，ClearPlaced() 会把 choppingPlayer 置空。
-                Ingredient done = placed.Ingredient.Clone();
-                PlayerController who = choppingPlayer;
-                bool autoHand = who != null && who.CanTake();
-                ClearPlaced();
-                if (autoHand)
-                {
-                    who.SpawnCarried(done);
-                }
-                else
-                {
-                    Place(done, who);
-                }
+                cutTimer = 0f;
+                chopping = false;
             }
         }
 
@@ -154,9 +144,11 @@ namespace KitchenChaos.Gameplay
         {
             if (placed != null)
             {
-                return chopping ? "切菜中…" : "按 E 取回 " + IngredientCatalog.GetName(placed.Type);
+                if (placed.State == IngredientState.Cut)
+                    return "已切好：空手按 E 取回，端盘按 E 装盘";
+                return chopping ? "切菜中…（按住 E）" : "按 E 取回 " + IngredientCatalog.GetName(placed.Type);
             }
-            return "切菜台：放入需要切的食材并长按 E";
+            return "切菜台：放入需要切的食材并按住 E";
         }
 
         public Transform GetTransform() => transform;
