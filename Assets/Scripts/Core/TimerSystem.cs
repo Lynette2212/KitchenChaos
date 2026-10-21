@@ -3,24 +3,25 @@ using UnityEngine;
 
 namespace KitchenChaos.Core
 {
+    /// <summary>
+    /// 整局倒计时。时间归零触发 GameOver。
+    /// </summary>
     public class TimerSystem : MonoBehaviour
     {
-        public float Duration = 120f;
+        public float RoundDuration = 150f;
+
         public float TimeRemaining { get; private set; }
         public bool IsRunning { get; private set; }
 
-        public event Action TimeUp;
+        public event Action<float> TimeChanged;
+        public event Action Expired;
 
-        public void StartTimer(float duration)
+        public void BeginRound(float duration)
         {
-            Duration = Mathf.Max(1f, duration);
-            TimeRemaining = Duration;
+            RoundDuration = duration;
+            TimeRemaining = duration;
             IsRunning = true;
-        }
-
-        public void StopTimer()
-        {
-            IsRunning = false;
+            TimeChanged?.Invoke(TimeRemaining);
         }
 
         private void Update()
@@ -28,12 +29,19 @@ namespace KitchenChaos.Core
             if (!IsRunning) return;
 
             TimeRemaining -= Time.deltaTime;
+            TimeChanged?.Invoke(TimeRemaining);
+
             if (TimeRemaining <= 0f)
             {
                 TimeRemaining = 0f;
                 IsRunning = false;
-                TimeUp?.Invoke();
+                Expired?.Invoke();
             }
+        }
+
+        public void Stop()
+        {
+            IsRunning = false;
         }
     }
 }

@@ -9,6 +9,9 @@ using KitchenChaos.Data;
 
 namespace KitchenChaos.EditorTools
 {
+    /// <summary>
+    /// 一键生成厨房场景与配方资产，避免手工在 Inspector 中搭建。
+    /// </summary>
     public static class KitchenSetup
     {
         public const string ScenePath = "Assets/Scenes/KitchenChaos.unity";
@@ -19,13 +22,13 @@ namespace KitchenChaos.EditorTools
         {
             if (!Application.isBatchMode && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
 
-            CreateSampleRecipes();
+            CreateRecipeAssets();
             Directory.CreateDirectory("Assets/Scenes");
             AssetDatabase.Refresh();
 
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             GameObject root = new GameObject("KitchenChaos");
-            root.AddComponent<SetupGuide>();
+            root.AddComponent<KitchenBuilder>();
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             AddSceneToBuildSettings(ScenePath);
@@ -38,56 +41,73 @@ namespace KitchenChaos.EditorTools
         [MenuItem("Tools/Kitchen Chaos/Open Kitchen Scene")]
         public static void OpenKitchenScene()
         {
-            if (!File.Exists(ScenePath))
-            {
-                CreateKitchenScene();
-            }
-
-            EditorSceneManager.OpenScene(ScenePath);
+            if (!File.Exists(ScenePath)) CreateKitchenScene();
+            else EditorSceneManager.OpenScene(ScenePath);
         }
 
-        [MenuItem("Tools/Kitchen Chaos/Create Sample Recipes")]
-        public static void CreateSampleRecipes()
+        [MenuItem("Tools/Kitchen Chaos/Create Recipe Assets")]
+        public static void CreateRecipeAssets()
         {
             Directory.CreateDirectory(RecipeFolder);
             AssetDatabase.Refresh();
 
-            CreateRecipeAsset("Salad", "番茄沙拉", 100, IngredientType.Tomato, IngredientType.Lettuce);
-            CreateRecipeAsset("CheeseTomato", "芝士番茄", 120, IngredientType.Cheese, IngredientType.Tomato);
-            CreateRecipeAsset("MeatPlate", "香煎肉盘", 80, IngredientType.Meat);
-            CreateRecipeAsset("DeluxePlate", "豪华拼盘", 200, IngredientType.Meat, IngredientType.Tomato, IngredientType.Cheese);
-            CreateRecipeAsset("GardenWrap", "田园卷", 130, IngredientType.Lettuce, IngredientType.Cheese);
+            // 先清空旧的简易配方，避免菜单重复
+            string[] old = Directory.GetFiles(RecipeFolder, "*.asset");
+            foreach (string f in old) AssetDatabase.DeleteAsset(f.Replace("\\", "/"));
+
+            CreateRecipe("CheeseBurger", "芝士汉堡", 120,
+                (IngredientType.Bun, IngredientState.Raw),
+                (IngredientType.MeatPatty, IngredientState.Cooked),
+                (IngredientType.Cheese, IngredientState.Cut));
+
+            CreateRecipe("UltimateBurger", "至尊汉堡", 180,
+                (IngredientType.Bun, IngredientState.Raw),
+                (IngredientType.MeatPatty, IngredientState.Cooked),
+                (IngredientType.Cheese, IngredientState.Cut),
+                (IngredientType.Tomato, IngredientState.Cut),
+                (IngredientType.Lettuce, IngredientState.Cut));
+
+            CreateRecipe("GardenSalad", "田园沙拉", 90,
+                (IngredientType.Lettuce, IngredientState.Cut),
+                (IngredientType.Tomato, IngredientState.Cut),
+                (IngredientType.Onion, IngredientState.Cut));
+
+            CreateRecipe("PanFriedPatty", "香煎肉饼", 80,
+                (IngredientType.MeatPatty, IngredientState.Cooked));
+
+            CreateRecipe("MushroomBurger", "蘑菇芝士堡", 150,
+                (IngredientType.Bun, IngredientState.Raw),
+                (IngredientType.Mushroom, IngredientState.Cooked),
+                (IngredientType.Cheese, IngredientState.Cut));
+
+            CreateRecipe("MushroomTomato", "番茄蘑菇盘", 110,
+                (IngredientType.Mushroom, IngredientState.Cooked),
+                (IngredientType.Tomato, IngredientState.Cut));
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
-            Debug.Log("Sample recipes created in " + RecipeFolder);
+            Debug.Log("Recipe assets created in " + RecipeFolder);
         }
 
-        private static void CreateRecipeAsset(string fileName, string displayName, int score, params IngredientType[] ingredients)
+        private static void CreateRecipe(string fileName, string displayName, int score,
+            params (IngredientType type, IngredientState state)[] items)
         {
             string path = RecipeFolder + "/" + fileName + ".asset";
-            if (AssetDatabase.LoadAssetAtPath<Recipe>(path) != null) return;
-
             Recipe recipe = ScriptableObject.CreateInstance<Recipe>();
             recipe.recipeName = displayName;
             recipe.score = score;
-            recipe.ingredients = new List<IngredientType>(ingredients);
+            recipe.ingredients = new List<RecipeIngredient>();
+            foreach ((IngredientType type, IngredientState state) it in items)
+            {
+                recipe.ingredients.Add(new RecipeIngredient { type = it.type, requiredState = it.state });
+            }
             AssetDatabase.CreateAsset(recipe, path);
         }
 
         private static void AddSceneToBuildSettings(string scenePath)
         {
             List<EditorBuildSettingsScene> scenes = new List<EditorBuildSettingsScene>(EditorBuildSettings.scenes);
-            for (int i = 0; i < scenes.Count; i++)
-            {
-                if (scenes[i].path == scenePath)
-                {
-                    scenes[i] = new EditorBuildSettingsScene(scenePath, true);
-                    EditorBuildSettings.scenes = scenes.ToArray();
-                    return;
-                }
-            }
-
+            scenes.RemoveAll(s => s.path == scenePath);
             scenes.Insert(0, new EditorBuildSettingsScene(scenePath, true));
             EditorBuildSettings.scenes = scenes.ToArray();
         }

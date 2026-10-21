@@ -3,48 +3,71 @@ using UnityEngine;
 
 namespace KitchenChaos.Data
 {
-    public enum IngredientType
-    {
-        Tomato,
-        Lettuce,
-        Cheese,
-        Meat
-    }
-
-    [CreateAssetMenu(fileName = "Recipe", menuName = "Kitchen Chaos/Recipe")]
+    /// <summary>
+    /// 一道菜的配方：由若干“对状态有要求”的食材组成。
+    /// ScriptableObject 资产保存在 Assets/Resources/Recipes，可在 Inspector 扩展。
+    /// </summary>
+    [CreateAssetMenu(fileName = "NewRecipe", menuName = "Kitchen Chaos/Recipe")]
     public class Recipe : ScriptableObject
     {
-        public string recipeName = "新菜谱";
-        public List<IngredientType> ingredients = new List<IngredientType>();
+        [Tooltip("中文菜名")]
+        public string recipeName = "新菜品";
+
+        [Tooltip("完成后基础分数（会再乘订单速度奖励与连击）")]
         public int score = 100;
 
-        public static string GetIngredientName(IngredientType type)
+        [Tooltip("该菜品需要的食材及其要求状态")]
+        public List<RecipeIngredient> ingredients = new List<RecipeIngredient>();
+
+        /// <summary>
+        /// 判断一盘已组装的食材是否满足本配方（忽略顺序、忽略多余食材是否可接受）。
+        /// 返回满足的要求条目数，配合完全匹配使用。
+        /// </summary>
+        public bool Matches(List<Ingredient> plate)
         {
-            switch (type)
+            if (plate == null) return false;
+
+            // 数量必须一致
+            if (plate.Count != ingredients.Count) return false;
+
+            // 复制一份需求，逐个被盘中食材消耗
+            List<RecipeIngredient> need = new List<RecipeIngredient>(ingredients);
+            foreach (Ingredient held in plate)
             {
-                case IngredientType.Tomato: return "番茄";
-                case IngredientType.Lettuce: return "生菜";
-                case IngredientType.Cheese: return "芝士";
-                case IngredientType.Meat: return "肉";
-                default: return type.ToString();
+                int found = need.FindIndex(r => r.type == held.type && r.requiredState == held.state);
+                if (found < 0) return false;
+                need.RemoveAt(found);
             }
+
+            return need.Count == 0;
         }
 
-        public static string GetCookedName(IngredientType type)
+        public string GetRequirementText()
         {
-            return "熟" + GetIngredientName(type);
+            List<string> parts = new List<string>();
+            foreach (RecipeIngredient r in ingredients)
+            {
+                parts.Add(IngredientCatalog.GetName(r.type) + StateSuffix(r.requiredState));
+            }
+            return string.Join(" + ", parts);
         }
 
-        public static Color GetIngredientColor(IngredientType type)
+        public static string StateSuffix(IngredientState state)
         {
-            switch (type)
+            switch (state)
             {
-                case IngredientType.Tomato: return new Color(0.85f, 0.2f, 0.2f);
-                case IngredientType.Lettuce: return new Color(0.3f, 0.75f, 0.3f);
-                case IngredientType.Cheese: return new Color(0.95f, 0.8f, 0.25f);
-                case IngredientType.Meat: return new Color(0.55f, 0.25f, 0.2f);
-                default: return Color.white;
+                case IngredientState.Cut: return "(切)";
+                case IngredientState.Cooked: return "(熟)";
+                case IngredientState.Burned: return "(糊)";
+                default: return string.Empty;
             }
         }
+    }
+
+    [System.Serializable]
+    public class RecipeIngredient
+    {
+        public IngredientType type;
+        public IngredientState requiredState = IngredientState.Raw;
     }
 }

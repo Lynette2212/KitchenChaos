@@ -6,67 +6,124 @@ using KitchenChaos.Data;
 
 namespace KitchenChaos.Core
 {
+    /// <summary>
+    /// 订单系统：周期性生成订单，维护每张订单的倒计时；
+    /// 成功交付或超时都会发出事件，并由 GameManager 联动声望。
+    /// </summary>
     public class OrderSystem : MonoBehaviour
     {
-        public int MaxActiveOrders = 3;
-        public IReadOnlyList<Order> ActiveOrders => activeOrders;
+        [Header("订单生成节奏")]
+        public float firstOrderDelay = 2f;
+        public float minSpawnInterval = 4f;
+        public float maxSpawnInterval = 8f;
+        public int maxActiveOrders = 4;
+
+        [Header("订单时限（秒）")]
+        public float minTimeLimit = 25f;
+        public float maxTimeLimit = 55f;
+
+        public List<Recipe> AvailableRecipes { get; private set; } = new List<Recipe>();
+        public List<Order> ActiveOrders { get; private set; } = new List<Order>();
 
         public event Action OrdersChanged;
+        public event Action<Order> OrderExpired;
+        public event Action<Order> OrderDelivered;
 
-        private readonly List<Order> activeOrders = new List<Order>();
-        private readonly List<Recipe> recipes = new List<Recipe>();
-        private System.Random random = new System.Random();
+        private bool spawning;
 
-        public void Initialize(List<Recipe> recipePool)
+        public void Initialize(List<Recipe> recipes)
         {
-            recipes.Clear();
-            if (recipePool != null) recipes.AddRange(recipePool);
-            if (recipes.Count == 0)
+            AvailableRecipes = recipes ?? new List<Recipe>();
+            ActiveOrders.Clear();
+            StopAllCoroutines();
+            spawning = false;
+            OrdersChanged?.Invoke();
+        }
+
+        public void StartSpawning()
+        {
+            if (!spawning) StartCoroutine(SpawnLoop());
+        }
+
+        public void StopSpawning()
+        {
+            spawning = false;
+            StopAllCoroutines();
+        }
+
+        private IEnumerator SpawnLoop()
+        {
+            spawning = true;
+            yield return new WaitForSeconds(firstOrderDelay);
+
+            while (spawning)
             {
-                Debug.LogError("OrderSystem: 没有可用菜谱，无法生成订单。");
-                return;
+                if (AvailableRecipes.Count > 0 && ActiveOrders.Count < maxActiveOrders)
+                {
+                    SpawnOrder();
+                }
+                yield return new WaitForSeconds(UnityEngine.Random.Range(minSpawnInterval, maxSpawnInterval));
             }
+        }
 
-            activeOrders.Clear();
-            for (int i = 0; i < MaxActiveOrders; i++) AddRandomOrder();
+        private void SpawnOrder()
+        {
+            Recipe recipe = AvailableRecipes[UnityEngine.Random.Range(0, AvailableRecipes.Count)];
+            float limit = UnityEngine.Random.Range(minTimeLimit, maxTimeLimit);
+            Order order = new Order(recipe, limit);
+            ActiveOrders.Add(order);
             OrdersChanged?.Invoke();
         }
 
-        public bool TryDeliver(Order order, IngredientType type, out bool completed, out int baseScore)
+        private void Update()
         {
-            completed = false;
-            baseScore = 0;
+            if (!spawning || ActiveOrders.Count == 0) return;
 
-            if (order == null || !activeOrders.Contains(order)) return false;
-            if (!order.TryDeliver(type)) return false;
-
-            if (order.IsComplete)
+            for (int i = ActiveOrders.Count - 1; i >= 0; i--)
             {
-                completed = true;
-                baseScore = order.recipe != null ? order.recipe.score : 0;
-                activeOrders.Remove(order);
-                StartCoroutine(AddOrderAfterDelay());
+                if (ActiveOrders[i].Tick(Time.deltaTime))
+                {
+                    Order expired = ActiveOrders[i];
+                    ActiveOrders.RemoveAt(i);
+                    OrderExpired?.Invoke(expired);
+                    OrdersChanged?.Invoke();
+                }
             }
-
-            OrdersChanged?.Invoke();
-            return true;
         }
 
-        private IEnumerator AddOrderAfterDelay()
+        /// <summary>尝试用一盘菜匹配并完成订单。返回得分所需信息；不匹配返回 null。</returns>
+        public DeliveryResult TryDeliver(List<Ingredient> dish)
         {
-            yield return new WaitForSeconds(1.2f);
-            if (GameManager.Instance == null || !GameManager.Instance.IsPlaying) yield break;
+            for (int i = 0; i < ActiveOrders.Count; i++)
+            {
+                Order order = ActiveOrders[i];
+                if (order.recipe != null && order.recipe.Matches(dish))
+                {
+                    ActiveOrders.RemoveAt(i);
+                    OrderDelivered?.Invoke(order);
+                    OrdersChanged?.Invoke();
+                    return new DeliveryResult
+                    {
+                        order = order,
+                        baseScore = order.recipe.score,
+                        speedBonus = order.SpeedBonus
+                    };
+                }
+            }
+            return null;
+        }
 
-            AddRandomOrder();
+        public void ClearOrders()
+        {
+            ActiveOrders.Clear();
             OrdersChanged?.Invoke();
         }
+    }
 
-        private void AddRandomOrder()
-        {
-            if (recipes.Count == 0) return;
-
-            Recipe recipe = recipes[random.Next(recipes.Count)];
-            activeOrders.Add(new Order(recipe));
-        }
+    public class DeliveryResult
+    {
+        public Order order;
+        public int baseScore;
+        public float speedBonus;
     }
 }

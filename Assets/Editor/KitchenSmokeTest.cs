@@ -1,147 +1,153 @@
 using System.Collections.Generic;
+using System.IO;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using KitchenChaos.Core;
 using KitchenChaos.Data;
 using KitchenChaos.Gameplay;
 
 namespace KitchenChaos.EditorTools
 {
-    [InitializeOnLoad]
+    /// <summary>
+    /// 无头确定性校验：batchmode 下用 -executeMethod KitchenChaos.EditorTools.KitchenSmokeTest.RunBatch
+    /// 程序化搭建厨房并断言核心玩法链路，结果写入 Temp/kitchen_smoke_result.txt，
+    /// 失败时以非零退出码结束，便于 CI / 命令行判定。
+    /// </summary>
     public static class KitchenSmokeTest
     {
-        private const string ActiveKey = "KitchenChaos.SmokeTest.Active";
-        private const string StartKey = "KitchenChaos.SmokeTest.Start";
+        private const string ResultPath = "Temp/kitchen_smoke_result.txt";
+        private static readonly List<string> failures = new List<string>();
+        private static int checks;
 
-        private static double playStartTime;
-        private static double actionTime;
-        private static int phase;
-
-        static KitchenSmokeTest()
+        public static void RunBatch()
         {
-            if (SessionState.GetBool(ActiveKey, false))
-            {
-                EditorApplication.update += Tick;
-            }
+            failures.Clear();
+            checks = 0;
+            Directory.CreateDirectory("Temp");
+
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+            GameObject root = new GameObject("KitchenChaos");
+            KitchenBuilder builder = root.AddComponent<KitchenBuilder>();
+            builder.Build();
+
+            VerifyScene();
+            VerifyCookingData();
+            VerifyDeliveryAndScore(root);
+
+            string summary = "KITCHEN SMOKE: " + checks + " checks, " + failures.Count + " failures";
+            File.WriteAllText(ResultPath,
+                summary + "\n" + (failures.Count > 0 ? string.Join("\n", failures) : "ALL PASS") + "\n");
+            Debug.Log(summary);
+
+            EditorApplication.Exit(failures.Count == 0 ? 0 : 1);
         }
 
-        public static void Run()
+        private static void VerifyScene()
         {
-            SessionState.SetBool(ActiveKey, true);
-            SessionState.SetFloat(StartKey, (float)EditorApplication.timeSinceStartup);
-            EditorSceneManager.OpenScene(KitchenSetup.ScenePath);
-            EditorApplication.update -= Tick;
-            EditorApplication.update += Tick;
-            EditorApplication.isPlaying = true;
+            Expect(Object.FindFirstObjectByType<GameManager>() != null, "GameManager exists");
+            Expect(Object.FindFirstObjectByType<PlayerController>() != null, "Player exists");
+            Expect(Object.FindFirstObjectByType<Camera>() != null, "Camera exists");
+            Expect(Object.FindFirstObjectByType<GameplayHUD>() != null, "HUD exists");
+
+            Expect(Object.FindObjectsByType<IngredientContainer>(FindObjectsInactive.Exclude).Length == 7,
+                "7 ingredient containers");
+            Expect(Object.FindObjectsByType<StoveCounter>(FindObjectsInactive.Exclude).Length >= 2,
+                ">=2 stoves");
+            Expect(Object.FindObjectsByType<CuttingCounter>(FindObjectsInactive.Exclude).Length >= 2,
+                ">=2 cutting counters");
+            Expect(Object.FindObjectsByType<PlateCounter>(FindObjectsInactive.Exclude).Length == 1,
+                "1 plate counter");
+            Expect(Object.FindObjectsByType<DeliveryCounter>(FindObjectsInactive.Exclude).Length == 1,
+                "1 delivery counter");
+            Expect(Object.FindObjectsByType<TrashBin>(FindObjectsInactive.Exclude).Length == 1,
+                "1 trash bin");
         }
 
-        private static void Tick()
+        private static void VerifyCookingData()
         {
-            float startTime = SessionState.GetFloat(StartKey, 0f);
-            if (startTime > 0f && EditorApplication.timeSinceStartup - startTime > 45.0)
+            // 食材加工要求
+            Expect(IngredientCatalog.NeedsCut(IngredientType.Tomato), "tomato needs cut");
+            Expect(IngredientCatalog.NeedsCook(IngredientType.MeatPatty), "patty needs cook");
+            Expect(!IngredientCatalog.NeedsCook(IngredientType.Bun), "bun needs no cook");
+
+            // 配方匹配
+            Recipe patty = FindRecipe("香煎肉饼");
+            Expect(patty != null, "recipe 香煎肉饼 exists");
+            if (patty != null)
             {
-                Debug.LogError("KITCHEN SMOKE: timeout");
-                Finish(1);
-                return;
-            }
-
-            if (!EditorApplication.isPlaying) return;
-
-            if (playStartTime <= 0.0) playStartTime = EditorApplication.timeSinceStartup;
-            if (EditorApplication.timeSinceStartup - playStartTime < 3.0) return;
-
-            GameManager gameManager = GameManager.Instance;
-            if (gameManager == null)
-            {
-                Debug.LogError("KITCHEN SMOKE: GameManager.Instance is null");
-                Finish(1);
-                return;
-            }
-
-            if (phase == 0) RunInitialChecks(gameManager);
-            else if (phase == 1) RunCookingChecks(gameManager);
-        }
-
-        private static void RunInitialChecks(GameManager gameManager)
-        {
-            int stations = Object.FindObjectsByType<CookingStation>(FindObjectsSortMode.None).Length;
-            int bins = Object.FindObjectsByType<IngredientItem>(FindObjectsSortMode.None).Length;
-            int orders = gameManager.Orders != null ? gameManager.Orders.ActiveOrders.Count : 0;
-
-            bool ok = gameManager.IsPlaying
-                      && stations == 3
-                      && bins == 4
-                      && orders == 3
-                      && gameManager.Timer != null
-                      && gameManager.Score != null;
-
-            Debug.Log("KITCHEN SMOKE: initial ok=" + ok
-                      + ", playing=" + gameManager.IsPlaying
-                      + ", stations=" + stations
-                      + ", bins=" + bins
-                      + ", orders=" + orders);
-
-            if (!ok)
-            {
-                Finish(1);
-                return;
-            }
-
-            CookingStation station = Object.FindObjectsByType<CookingStation>(FindObjectsSortMode.None)[0];
-            bool added = station.TryAddIngredient(IngredientType.Tomato);
-            Debug.Log("KITCHEN SMOKE: station add=" + added);
-
-            phase = 1;
-            actionTime = EditorApplication.timeSinceStartup;
-        }
-
-        private static void RunCookingChecks(GameManager gameManager)
-        {
-            if (EditorApplication.timeSinceStartup - actionTime < 3.0) return;
-
-            CookingStation station = Object.FindObjectsByType<CookingStation>(FindObjectsSortMode.None)[0];
-            bool ready = station.IsReady;
-            bool took = station.TryTakeCooked(out IngredientType cookedType);
-            bool cookOk = ready && took && cookedType == IngredientType.Tomato;
-
-            bool deliveryOk = false;
-            int scoreAfter = 0;
-            int completedAfter = 0;
-
-            if (gameManager.Orders != null && gameManager.Orders.ActiveOrders.Count > 0)
-            {
-                Order order = gameManager.Orders.ActiveOrders[0];
-                if (order != null && order.recipe != null)
+                Expect(patty.Matches(new List<Ingredient>
                 {
-                    List<IngredientType> required = new List<IngredientType>(order.recipe.ingredients);
-                    foreach (IngredientType type in required)
-                    {
-                        gameManager.Deliver(order, type);
-                    }
+                    new Ingredient(IngredientType.MeatPatty, IngredientState.Cooked)
+                }), "cooked patty matches");
 
-                    deliveryOk = gameManager.Score.CompletedOrders >= 1 && gameManager.Score.Score > 0;
-                    scoreAfter = gameManager.Score.Score;
-                    completedAfter = gameManager.Score.CompletedOrders;
-                }
+                Expect(!patty.Matches(new List<Ingredient>
+                {
+                    new Ingredient(IngredientType.MeatPatty, IngredientState.Raw)
+                }), "raw patty rejected");
+
+                Expect(!patty.Matches(new List<Ingredient>
+                {
+                    new Ingredient(IngredientType.MeatPatty, IngredientState.Burned)
+                }), "burned patty rejected");
             }
 
-            Debug.Log("KITCHEN SMOKE: cook ok=" + cookOk
-                      + ", ready=" + ready
-                      + ", cookedType=" + cookedType
-                      + ", deliveryOk=" + deliveryOk
-                      + ", score=" + scoreAfter
-                      + ", completed=" + completedAfter);
-
-            Finish(cookOk && deliveryOk ? 0 : 1);
+            Recipe burger = FindRecipe("芝士汉堡");
+            Expect(burger != null, "recipe 芝士汉堡 exists");
+            if (burger != null)
+            {
+                Expect(burger.Matches(new List<Ingredient>
+                {
+                    new Ingredient(IngredientType.Bun, IngredientState.Raw),
+                    new Ingredient(IngredientType.MeatPatty, IngredientState.Cooked),
+                    new Ingredient(IngredientType.Cheese, IngredientState.Cut)
+                }), "assembled cheeseburger matches (order independent)");
+            }
         }
 
-        private static void Finish(int exitCode)
+        private static void VerifyDeliveryAndScore(GameObject root)
         {
-            SessionState.SetBool(ActiveKey, false);
-            EditorApplication.update -= Tick;
-            Debug.Log("KITCHEN SMOKE: done exit=" + exitCode);
-            EditorApplication.Exit(exitCode);
+            GameManager gm = Object.FindFirstObjectByType<GameManager>();
+            Expect(gm != null, "GameManager for delivery test");
+            if (gm == null) return;
+
+            gm.StartGame();
+            Expect(gm.IsPlaying, "game is playing after StartGame");
+            Expect(gm.Reputation == gm.startReputation, "reputation initialized");
+
+            // 错误出餐（无订单匹配）扣分但不直接结束整局（声望从 3 开始）
+            int repBefore = gm.Reputation;
+            gm.TryDeliverDish(new List<Ingredient>
+            {
+                new Ingredient(IngredientType.Bun, IngredientState.Raw)
+            });
+            Expect(gm.Reputation == repBefore - 1, "wrong dish costs reputation");
+
+            // 计分链路
+            int before = gm.Score.Score;
+            gm.Score.RegisterSuccess(100, 1.0f);
+            Expect(gm.Score.Score > before && gm.Score.CompletedOrders == 1, "score increases on success");
+        }
+
+        private static Recipe FindRecipe(string name)
+        {
+            foreach (Recipe r in Resources.LoadAll<Recipe>("Recipes"))
+            {
+                if (r.recipeName == name) return r;
+            }
+            foreach (Recipe r in RecipeFactory.CreateDefaultRecipes())
+            {
+                if (r.recipeName == name) return r;
+            }
+            return null;
+        }
+
+        private static void Expect(bool condition, string label)
+        {
+            checks++;
+            if (!condition) failures.Add("FAIL: " + label);
         }
     }
 }
