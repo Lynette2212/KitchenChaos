@@ -133,17 +133,19 @@ namespace KitchenChaos.Gameplay
             if (cutTimer >= need)
             {
                 placed.SetState(IngredientState.Cut);
-                // 加工完成后，若玩家空手则自动入手机，流程更顺手；否则留在台面待装盘/取回
+                // 加工完成后，若玩家空手则自动入手机，流程更顺手；否则留在台面待装盘/取回。
+                // 注意：必须先缓存玩家与结果，ClearPlaced() 会把 choppingPlayer 置空。
                 Ingredient done = placed.Ingredient.Clone();
-                bool autoHand = choppingPlayer != null && choppingPlayer.CanTake();
+                PlayerController who = choppingPlayer;
+                bool autoHand = who != null && who.CanTake();
                 ClearPlaced();
                 if (autoHand)
                 {
-                    choppingPlayer.SpawnCarried(done);
+                    who.SpawnCarried(done);
                 }
                 else
                 {
-                    Place(done, choppingPlayer);
+                    Place(done, who);
                 }
             }
         }
