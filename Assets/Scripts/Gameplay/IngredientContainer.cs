@@ -19,6 +19,21 @@ namespace KitchenChaos.Gameplay
 
         public bool Interact(PlayerController player)
         {
+            // 手持盘子时：可直接把“无需加工”的食材（如面包）放进盘里，
+            // 否则面包这类即食食材没有任何途径能装盘，汉堡无法组装。
+            if (player.HasPlate)
+            {
+                bool readyToPlate = !IngredientCatalog.NeedsCut(ingredientType)
+                                    && !IngredientCatalog.Get(ingredientType).needsCook;
+                if (!readyToPlate) return false;
+                if (player.Plate.Add(new Ingredient(ingredientType, IngredientState.Raw)))
+                {
+                    if (AudioManager.Instance != null) AudioManager.Instance.Play(SfxType.Drop);
+                    return true;
+                }
+                return false;
+            }
+
             if (!player.CanTake()) return false;
             player.SpawnCarried(new Ingredient(ingredientType, IngredientState.Raw));
             if (AudioManager.Instance != null) AudioManager.Instance.Play(SfxType.Pickup);
