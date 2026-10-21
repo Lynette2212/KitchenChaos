@@ -76,6 +76,13 @@ namespace KitchenChaos.Core
             camera.clearFlags = CameraClearFlags.SolidColor;
             camera.backgroundColor = new Color(0.07f, 0.08f, 0.1f);
             cameraObject.AddComponent<AudioListener>();
+            
+            Debug.Log("[Camera] Created at: " + cameraObject.transform.position);
+            Debug.Log("[Camera] Looking at: (0, 0, 0)");
+            Debug.Log("[Camera] Forward: " + cameraObject.transform.forward);
+            Debug.Log("[Camera] Orthographic size: " + camera.orthographicSize);
+            Debug.Log("[Camera] Camera count in scene: " + Camera.allCamerasCount);
+            
             return camera;
         }
 
@@ -174,9 +181,13 @@ namespace KitchenChaos.Core
             Renderer targetRenderer = box.GetComponent<Renderer>();
             if (targetRenderer != null)
             {
-                Material material = new Material(Shader.Find("Standard"));
+                Material material = new Material(Shader.Find("Unlit/Color"));
                 material.color = color;
                 targetRenderer.material = material;
+            }
+            else
+            {
+                Debug.LogError("No Renderer found on " + objectName);
             }
 
             return box;
