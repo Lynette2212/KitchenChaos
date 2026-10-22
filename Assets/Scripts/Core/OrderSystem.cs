@@ -1,116 +1,108 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using KitchenChaos.Data;
 
 namespace KitchenChaos.Core
 {
-    /// <summary>
-    /// 订单系统：周期性生成订单，维护每张订单的倒计时；
-    /// 成功交付或超时都会发出事件，并由 GameManager 联动声望。
-    /// </summary>
     public class OrderSystem : MonoBehaviour
     {
-        [Header("订单生成节奏")]
-        public float firstOrderDelay = 2f;
-        public float minSpawnInterval = 4f;
-        public float maxSpawnInterval = 8f;
-        public int maxActiveOrders = 4;
-
-        [Header("订单时限（秒）")]
-        public float minTimeLimit = 25f;
-        public float maxTimeLimit = 55f;
+        public float firstOrderDelay = 1.2f;
+        public float minSpawnInterval = 12f;
+        public float maxSpawnInterval = 16f;
+        public int maxActiveOrders = 2;
 
         public List<Recipe> AvailableRecipes { get; private set; } = new List<Recipe>();
         public List<Order> ActiveOrders { get; private set; } = new List<Order>();
-
+        public IReadOnlyList<Recipe> UnlockedRecipes => unlockedRecipes;
+        public bool IsSpawning { get; private set; }
         public event Action OrdersChanged;
         public event Action<Order> OrderExpired;
         public event Action<Order> OrderDelivered;
 
-        private bool spawning;
+        private readonly List<Recipe> unlockedRecipes = new List<Recipe>();
+        private float spawnTimer;
+        private float patienceBonus;
+        private int day = 1;
+        private Recipe lastRecipe;
 
         public void Initialize(List<Recipe> recipes)
         {
-            AvailableRecipes = recipes ?? new List<Recipe>();
-            ActiveOrders.Clear();
-            StopAllCoroutines();
-            spawning = false;
-            OrdersChanged?.Invoke();
+            StopSpawning();
+            AvailableRecipes = recipes;
+            ClearOrders();
+            ConfigureDay(1, 0f);
+        }
+
+        public void ConfigureDay(int currentDay, float extraPatience)
+        {
+            day = currentDay;
+            patienceBonus = extraPatience;
+            minSpawnInterval = Mathf.Max(6f, 16f - day * 2f);
+            maxSpawnInterval = minSpawnInterval + 3f;
+            maxActiveOrders = day <= 2 ? 2 : day <= 4 ? 3 : 4;
+            unlockedRecipes.Clear();
+            foreach (Recipe recipe in AvailableRecipes)
+                if (CampaignRules.UnlockDay(recipe) <= day) unlockedRecipes.Add(recipe);
+            unlockedRecipes.Sort((a, b) => a.ingredients.Count.CompareTo(b.ingredients.Count));
+            lastRecipe = null;
         }
 
         public void StartSpawning()
         {
-            if (!spawning) StartCoroutine(SpawnLoop());
+            IsSpawning = true;
+            spawnTimer = firstOrderDelay;
         }
 
-        public void StopSpawning()
-        {
-            spawning = false;
-            StopAllCoroutines();
-        }
+        public void StopSpawning() => IsSpawning = false;
 
-        private IEnumerator SpawnLoop()
-        {
-            spawning = true;
-            yield return new WaitForSeconds(firstOrderDelay);
+        private void Update() => AdvanceTime(Time.deltaTime);
 
-            while (spawning)
+        public void AdvanceTime(float deltaTime)
+        {
+            if (!IsSpawning || deltaTime <= 0f || (GameManager.Instance != null && !GameManager.Instance.IsPlaying)) return;
+            for (int i = ActiveOrders.Count - 1; i >= 0; i--)
             {
-                if (AvailableRecipes.Count > 0 && ActiveOrders.Count < maxActiveOrders)
-                {
-                    SpawnOrder();
-                }
-                yield return new WaitForSeconds(UnityEngine.Random.Range(minSpawnInterval, maxSpawnInterval));
+                Order order = ActiveOrders[i];
+                if (!order.Tick(deltaTime)) continue;
+                ActiveOrders.RemoveAt(i);
+                OrderExpired?.Invoke(order);
+                OrdersChanged?.Invoke();
+                if (!IsSpawning) return;
             }
+
+            spawnTimer -= deltaTime;
+            if (spawnTimer > 0f || ActiveOrders.Count >= maxActiveOrders || unlockedRecipes.Count == 0) return;
+            SpawnOrder();
+            spawnTimer = UnityEngine.Random.Range(minSpawnInterval, maxSpawnInterval);
         }
 
         private void SpawnOrder()
         {
-            Recipe recipe = AvailableRecipes[UnityEngine.Random.Range(0, AvailableRecipes.Count)];
-            float limit = UnityEngine.Random.Range(minTimeLimit, maxTimeLimit);
-            Order order = new Order(recipe, limit);
-            ActiveOrders.Add(order);
+            int index = UnityEngine.Random.Range(0, unlockedRecipes.Count);
+            if (lastRecipe == null) index = unlockedRecipes.Count - 1;
+            else if (unlockedRecipes.Count > 1 && unlockedRecipes[index] == lastRecipe)
+                index = (index + 1) % unlockedRecipes.Count;
+            Recipe recipe = unlockedRecipes[index];
+            lastRecipe = recipe;
+            ActiveOrders.Add(new Order(recipe, CampaignRules.OrderTimeLimit(recipe, day, patienceBonus)));
             OrdersChanged?.Invoke();
         }
 
-        private void Update()
-        {
-            if (!spawning || ActiveOrders.Count == 0) return;
-
-            for (int i = ActiveOrders.Count - 1; i >= 0; i--)
-            {
-                if (ActiveOrders[i].Tick(Time.deltaTime))
-                {
-                    Order expired = ActiveOrders[i];
-                    ActiveOrders.RemoveAt(i);
-                    OrderExpired?.Invoke(expired);
-                    OrdersChanged?.Invoke();
-                }
-            }
-        }
-
-        /// <summary>尝试用一盘菜匹配并完成订单。返回得分所需信息；不匹配返回 null。</returns>
         public DeliveryResult TryDeliver(List<Ingredient> dish)
         {
-            for (int i = 0; i < ActiveOrders.Count; i++)
+            Order best = null;
+            foreach (Order order in ActiveOrders)
             {
-                Order order = ActiveOrders[i];
-                if (order.recipe != null && order.recipe.Matches(dish))
-                {
-                    ActiveOrders.RemoveAt(i);
-                    OrderDelivered?.Invoke(order);
-                    OrdersChanged?.Invoke();
-                    return new DeliveryResult
-                    {
-                        order = order,
-                        baseScore = order.recipe.score,
-                        speedBonus = order.SpeedBonus
-                    };
-                }
+                if (order.timeRemaining <= 0f || !order.recipe.Matches(dish)) continue;
+                if (best == null || order.timeRemaining < best.timeRemaining) best = order;
             }
-            return null;
+            if (best == null) return null;
+            ActiveOrders.Remove(best);
+            OrderDelivered?.Invoke(best);
+            OrdersChanged?.Invoke();
+            if (ActiveOrders.Count == 0) spawnTimer = Mathf.Min(spawnTimer, 2f);
+            return new DeliveryResult { order = best, baseScore = best.recipe.score, speedBonus = best.SpeedBonus };
         }
 
         public void ClearOrders()

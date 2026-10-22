@@ -1,12 +1,10 @@
 using UnityEngine;
 using KitchenChaos.Data;
 using KitchenChaos.Audio;
+using KitchenChaos.Visual;
 
 namespace KitchenChaos.Gameplay
 {
-    /// <summary>
-    /// 食材柜：空手交互时获得一份该类型的生食材（无限供应）。
-    /// </summary>
     public class IngredientContainer : MonoBehaviour, IInteractable
     {
         [SerializeField] private IngredientType ingredientType = IngredientType.Tomato;
@@ -19,32 +17,33 @@ namespace KitchenChaos.Gameplay
 
         public bool Interact(PlayerController player)
         {
-            // 手持盘子时：可直接把“无需加工”的食材（如面包）放进盘里，
-            // 否则面包这类即食食材没有任何途径能装盘，汉堡无法组装。
+            if (player == null || !player.CanInteract) return false;
+            Ingredient data = new Ingredient(ingredientType, IngredientState.Raw);
+            if (IngredientCatalog.Get(ingredientType) == null)
+                return player.RejectInteraction("食材柜尚未配置食材");
             if (player.HasPlate)
             {
-                bool readyToPlate = !IngredientCatalog.NeedsCut(ingredientType)
-                                    && !IngredientCatalog.Get(ingredientType).needsCook;
-                if (!readyToPlate) return false;
-                if (player.Plate.Add(new Ingredient(ingredientType, IngredientState.Raw)))
-                {
-                    if (AudioManager.Instance != null) AudioManager.Instance.Play(SfxType.Drop);
-                    return true;
-                }
-                return false;
+                string reason = player.Plate.GetAddFailureReason(data);
+                if (reason != null) return player.RejectInteraction(reason);
+                if (!player.Plate.Add(data)) return false;
+                PickupFeedback();
+                return true;
             }
-
-            if (!player.CanTake()) return false;
-            player.SpawnCarried(new Ingredient(ingredientType, IngredientState.Raw));
-            if (AudioManager.Instance != null) AudioManager.Instance.Play(SfxType.Pickup);
+            if (!player.CanTake()) return player.RejectInteraction("手上已有食材，请先放到加工台或暂存台");
+            if (!player.GiveItem(data)) return false;
+            PickupFeedback();
             return true;
         }
 
-        public string GetPrompt()
+        private void PickupFeedback()
         {
-            return "按 E 拿取 " + IngredientCatalog.GetName(ingredientType);
+            Transform sample = transform.Find("Sample");
+            if (sample != null) FeedbackFX.Punch(sample, 0.3f, 0.35f);
+            FeedbackFX.Burst(transform.position + Vector3.up * 0.85f, IngredientCatalog.GetColor(ingredientType), 6, 1.8f, 0.06f, 5f, 0.4f);
+            if (AudioManager.Instance != null) AudioManager.Instance.Play(SfxType.Pickup);
         }
 
+        public string GetPrompt() => "按 E 拿取 " + IngredientCatalog.GetName(ingredientType);
         public Transform GetTransform() => transform;
     }
 }

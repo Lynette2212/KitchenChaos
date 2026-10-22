@@ -28,6 +28,12 @@ namespace KitchenChaos.Gameplay
             }
         }
 
+        private void OnDestroy()
+        {
+            foreach (Material material in materials)
+                if (material != null) Destroy(material);
+        }
+
         public void SetHighlight(bool on)
         {
             if (on == highlighted) return;

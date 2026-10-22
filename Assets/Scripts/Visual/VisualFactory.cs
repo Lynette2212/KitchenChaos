@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using KitchenChaos.Data;
 
@@ -12,6 +13,7 @@ namespace KitchenChaos.Visual
     {
         private static Shader litShader;
         private static Material cachedBurned;
+        private static readonly Dictionary<(Color, float, float), Material> materials = new Dictionary<(Color, float, float), Material>();
 
         public static Shader LitShader
         {
@@ -29,6 +31,8 @@ namespace KitchenChaos.Visual
 
         public static Material MakeMaterial(Color color, float smoothness = 0.25f, float metallic = 0f)
         {
+            var key = (color, smoothness, metallic);
+            if (materials.TryGetValue(key, out Material existing) && existing != null) return existing;
             Material mat;
             if (LitShader != null)
             {
@@ -43,7 +47,16 @@ namespace KitchenChaos.Visual
                 mat = new Material(Shader.Find("Unlit/Color"));
                 mat.color = color;
             }
+            materials[key] = mat;
             return mat;
+        }
+
+        public static void ReleaseMaterials()
+        {
+            foreach (Material material in materials.Values)
+                if (material != null) Object.Destroy(material);
+            materials.Clear();
+            cachedBurned = null;
         }
 
         public static Material BurnedMaterial

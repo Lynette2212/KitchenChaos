@@ -1,5 +1,6 @@
 using UnityEngine;
 using KitchenChaos.Data;
+using KitchenChaos.Visual;
 
 namespace KitchenChaos.Gameplay
 {
@@ -37,6 +38,7 @@ namespace KitchenChaos.Gameplay
             followTarget = follow;
             followOffset = offset;
             RebuildVisual();
+            FeedbackFX.Punch(transform, 0.25f, 0.3f);
         }
 
         public void SetFollow(Transform follow, Vector3 offset = default)
@@ -72,6 +74,7 @@ namespace KitchenChaos.Gameplay
             state = newState;
             if (Ingredient != null) Ingredient.state = newState;
             RebuildVisual();
+            FeedbackFX.Punch(transform, 0.3f, 0.35f);
         }
     }
 }

@@ -1,144 +1,198 @@
 using UnityEngine;
 using KitchenChaos.Data;
+using KitchenChaos.Core;
 using KitchenChaos.Audio;
+using KitchenChaos.Visual;
 
 namespace KitchenChaos.Gameplay
 {
-    /// <summary>
-    /// 灶台：放入需要烹饪的食材后自动加热。
-    /// 到达 cookTime 变为“熟”；若不及时取走，继续加热超过 burnGrace 会烤糊。
-    /// 台面最多一块，空手交互取回。
-    /// </summary>
     public class StoveCounter : MonoBehaviour, IInteractable, IProcessingStation
     {
         [SerializeField] private Transform itemAnchor;
-        [SerializeField] private float burnGrace = 3.5f; // 熟后多久不拿走会糊
-
+        private const float BurnGrace = 8f;
         private IngredientItem placed;
         private float cookTimer;
-        private bool hasCooked;
+        private float burnTimer;
         private float sizzleCooldown;
+        private float smokeTimer;
+        private float warnCooldown;
+        private bool warned;
 
-        public bool IsProcessing => placed != null && !hasCooked && placed.State != IngredientState.Burned;
+        public Ingredient PlacedIngredient => placed != null ? placed.Ingredient : null;
+        public bool IsProcessing => GameManager.Instance != null && GameManager.Instance.IsPlaying
+            && placed != null && !IsCooked && !IsBurned;
         public bool IsCooked => placed != null && placed.State == IngredientState.Cooked;
         public bool IsBurned => placed != null && placed.State == IngredientState.Burned;
-
-        public float Progress01
-        {
-            get
-            {
-                if (placed == null) return 0f;
-                if (hasCooked) return 1f; // 已煎好（等待取走，再放会糊）
-                IngredientInfo info = IngredientCatalog.Get(placed.Type);
-                float need = info != null ? info.cookTime : 1f;
-                return Mathf.Clamp01(cookTimer / Mathf.Max(0.1f, need));
-            }
-        }
+        private float CookDuration => Mathf.Max(0.01f, IngredientCatalog.Get(placed.Type)?.cookTime ?? 1f);
+        private float BurnDuration => Mathf.Max(0.01f, BurnGrace
+            + (GameManager.Instance != null ? GameManager.Instance.BurnGraceBonus : 0f));
+        public float Progress01 => placed == null ? 0f : IsCooked || IsBurned ? 1f
+            : Mathf.Clamp01(cookTimer / CookDuration);
+        public float SecondsUntilBurn => IsCooked ? Mathf.Max(0f, BurnDuration - burnTimer) : 0f;
+        public float BurnRemaining01 => IsCooked ? Mathf.Clamp01(SecondsUntilBurn / BurnDuration) : 0f;
 
         public bool Interact(PlayerController player)
         {
+            if (player == null || !player.CanInteract) return false;
             if (placed != null)
             {
-                // 手持盘子且已煎好：装入盘中（糊的不能装）
-                if (player.HasPlate && placed.State == IngredientState.Cooked)
+                if (player.HasPlate)
                 {
-                    if (player.Plate.Add(placed.Ingredient.Clone()))
-                    {
-                        ClearPlaced();
-                        if (AudioManager.Instance != null) AudioManager.Instance.Play(SfxType.Drop);
-                        return true;
-                    }
-                    return false;
+                    string reason = player.Plate.GetAddFailureReason(placed.Ingredient);
+                    if (reason != null) return player.RejectInteraction(reason);
+                    if (!player.Plate.Add(placed.Ingredient)) return false;
+                    ClearPlaced();
+                    Play(SfxType.Drop);
+                    return true;
                 }
-
-                if (player.HasItem || player.HasPlate) return false;
-                player.SpawnCarried(placed.Ingredient.Clone());
+                if (!player.CanTake()) return player.RejectInteraction("灶台已有食材，请先腾出双手");
+                if (!player.GiveItem(placed.Ingredient)) return false;
                 ClearPlaced();
-                if (AudioManager.Instance != null) AudioManager.Instance.Play(SfxType.Pickup);
+                Play(SfxType.Pickup);
                 return true;
             }
 
-            if (player.HasItem)
-            {
-                Ingredient data = player.TakeItem();
-                if (data == null) return false;
-
-                IngredientInfo info = IngredientCatalog.Get(data.type);
-                bool canCook = info != null && info.needsCook
-                               && (data.state == IngredientState.Raw || data.state == IngredientState.Cut)
-                               && data.state != IngredientState.Cooked
-                               && data.state != IngredientState.Burned;
-                if (!canCook)
-                {
-                    player.SpawnCarried(data); // 退回
-                    return false;
-                }
-
-                Place(data);
-                if (AudioManager.Instance != null) AudioManager.Instance.Play(SfxType.Drop);
-                return true;
-            }
-
-            return false;
+            if (!player.HasItem) return player.RejectInteraction("先拿取肉饼或切好的蘑菇，再放入灶台");
+            Ingredient data = player.CarriedItem.Ingredient;
+            IngredientInfo info = data != null ? IngredientCatalog.Get(data.type) : null;
+            if (info == null || !info.needsCook)
+                return player.RejectInteraction("这种食材无需煎制，请使用切菜台或暂存台");
+            if (data.state == IngredientState.Cooked)
+                return player.RejectInteraction("食材已经熟了，请装盘或放到暂存台，不能重复煎制");
+            if (data.state == IngredientState.Burned)
+                return player.RejectInteraction("烤糊的食材无法重新煎制，请丢进垃圾桶");
+            if (info.needsCut && data.state != IngredientState.Cut)
+                return player.RejectInteraction("蘑菇需要先在切菜台切好，再放入灶台");
+            if (data.state != IngredientState.Raw && data.state != IngredientState.Cut)
+                return player.RejectInteraction("这份食材无法煎制");
+            Place(player.TakeItem());
+            Play(SfxType.Drop);
+            return true;
         }
 
         private void Place(Ingredient data)
         {
+            if (itemAnchor == null) itemAnchor = transform.Find("ItemAnchor");
             GameObject go = new GameObject("StoveIngredient");
             go.transform.SetParent(itemAnchor != null ? itemAnchor : transform, false);
+            go.transform.localPosition = itemAnchor != null ? new Vector3(0f, 0.06f, 0f)
+                : new Vector3(0f, 0.61f, 0f);
             placed = go.AddComponent<IngredientItem>();
-            placed.Setup(data, itemAnchor != null ? itemAnchor : transform, new Vector3(0f, 1.05f, 0f));
+            placed.Setup(data);
             cookTimer = 0f;
-            hasCooked = false;
+            burnTimer = 0f;
+            sizzleCooldown = 0f;
+            smokeTimer = 0f;
+            warnCooldown = 0f;
+            warned = false;
         }
 
         private void ClearPlaced()
         {
-            if (placed != null) Destroy(placed.gameObject);
+            if (placed != null)
+            {
+                placed.gameObject.SetActive(false);
+                Destroy(placed.gameObject);
+            }
             placed = null;
             cookTimer = 0f;
-            hasCooked = false;
+            burnTimer = 0f;
+            sizzleCooldown = 0f;
+            smokeTimer = 0f;
+            warnCooldown = 0f;
+            warned = false;
         }
 
-        private void Update()
+        private void Update() => AdvanceProcessing(Time.deltaTime);
+
+        public void AdvanceProcessing(float dt)
         {
-            if (placed == null) return;
+            GameManager gm = GameManager.Instance;
+            if (gm == null || !gm.IsPlaying || placed == null || IsBurned
+                || dt <= 0f || float.IsNaN(dt) || float.IsInfinity(dt)) return;
 
-            IngredientInfo info = IngredientCatalog.Get(placed.Type);
-            float need = info != null ? info.cookTime : 1f;
+            float burnDelta = dt;
+            if (!IsCooked)
+            {
+                float speed = Mathf.Max(0f, gm.CookingSpeedMultiplier);
+                if (speed <= 0f) return;
+                float need = CookDuration;
+                float secondsToCook = Mathf.Max(0f, need - cookTimer) / speed;
+                if (dt < secondsToCook)
+                {
+                    cookTimer = Mathf.Min(need, cookTimer + dt * speed);
+                    burnDelta = 0f;
+                }
+                else
+                {
+                    cookTimer = need;
+                    placed.SetState(IngredientState.Cooked);
+                    burnDelta = dt - secondsToCook;
+                    Play(SfxType.Cooked);
+                    Vector3 done = placed.transform.position + Vector3.up * 0.3f;
+                    FeedbackFX.Burst(done, new Color(1f, 0.78f, 0.32f), 14, 2.6f, 0.08f, 5f, 0.55f);
+                    FeedbackFX.Punch(placed.transform, 0.35f, 0.45f);
+                    FeedbackFX.Popup(done + Vector3.up * 0.35f, "煎好了！", new Color(1f, 0.78f, 0.32f), false);
+                    FeedbackFX.Shake(0.05f, 0.14f);
+                }
+            }
 
-            if (placed.State == IngredientState.Burned) return;
+            smokeTimer -= dt;
+            if (!IsCooked && smokeTimer <= 0f)
+            {
+                smokeTimer = 0.3f;
+                FeedbackFX.Puff(placed.transform.position + Vector3.up * 0.35f, new Color(0.72f, 0.73f, 0.7f), 1, 0.17f, 0.85f, 0.85f);
+            }
 
-            cookTimer += Time.deltaTime;
-
-            // 煎烤循环音
-            sizzleCooldown -= Time.deltaTime;
+            sizzleCooldown -= dt;
             if (sizzleCooldown <= 0f)
             {
-                if (AudioManager.Instance != null) AudioManager.Instance.Play(SfxType.Sizzle);
+                Play(SfxType.Sizzle);
                 sizzleCooldown = 0.9f;
             }
+            if (!IsCooked) return;
 
-            if (!hasCooked && cookTimer >= need)
+            if (BurnRemaining01 < 0.35f)
             {
-                hasCooked = true;
-                placed.SetState(IngredientState.Cooked);
-                cookTimer = 0f;
-                if (AudioManager.Instance != null) AudioManager.Instance.Play(SfxType.Cooked);
+                if (!warned)
+                {
+                    warned = true;
+                    warnCooldown = 0f;
+                    FeedbackFX.Popup(placed.transform.position + Vector3.up * 0.6f, "快糊了！", new Color(1f, 0.5f, 0.44f), false);
+                }
+                warnCooldown -= dt;
+                if (warnCooldown <= 0f)
+                {
+                    warnCooldown = 0.8f;
+                    Play(SfxType.Warning);
+                    FeedbackFX.Puff(placed.transform.position + Vector3.up * 0.4f, new Color(0.35f, 0.34f, 0.32f), 1, 0.14f, 1f, 0.7f);
+                }
             }
-            else if (hasCooked && cookTimer >= burnGrace)
-            {
-                placed.SetState(IngredientState.Burned);
-                if (AudioManager.Instance != null) AudioManager.Instance.Play(SfxType.Burned);
-            }
+
+            burnTimer = Mathf.Min(BurnDuration, burnTimer + burnDelta);
+            if (burnTimer < BurnDuration) return;
+            Vector3 charred = placed.transform.position + Vector3.up * 0.3f;
+            placed.SetState(IngredientState.Burned);
+            Play(SfxType.Burned);
+            FeedbackFX.Burst(charred, new Color(0.16f, 0.14f, 0.12f), 16, 2.6f, 0.09f, 7f, 0.65f);
+            FeedbackFX.Puff(charred + Vector3.up * 0.2f, new Color(0.28f, 0.27f, 0.25f), 5, 0.24f, 1.2f, 1.1f);
+            FeedbackFX.Popup(charred + Vector3.up * 0.4f, "糊了！", new Color(1f, 0.45f, 0.4f), true);
+            FeedbackFX.Shake(0.2f, 0.32f);
+        }
+
+        public void ResetStation() => ClearPlaced();
+
+        private static void Play(SfxType sound)
+        {
+            if (AudioManager.Instance != null) AudioManager.Instance.Play(sound);
         }
 
         public string GetPrompt()
         {
-            if (placed == null) return "灶台：放入待煎食材";
-            if (IsBurned) return "烤糊了！按 E 取回（只能丢弃）";
-            if (IsCooked) return "已煎好！按 E 取走（再放会糊）";
-            return "煎制中…按 E 可取回";
+            if (placed == null) return "灶台：E 放入肉饼或切好的蘑菇，自动煎制";
+            if (IsBurned) return "烤糊了！空手 E 取回，再丢进垃圾桶";
+            if (IsCooked) return "已煎好！E 取走或装盘，距烤糊 " + SecondsUntilBurn.ToString("0.0") + " 秒";
+            return "煎制中…空手 E 可取回";
         }
 
         public Transform GetTransform() => transform;

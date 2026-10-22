@@ -24,16 +24,15 @@ namespace KitchenChaos.Core
             TimeChanged?.Invoke(TimeRemaining);
         }
 
-        private void Update()
+        private void Update() => AdvanceTime(Time.deltaTime);
+
+        public void AdvanceTime(float deltaTime)
         {
-            if (!IsRunning) return;
-
-            TimeRemaining -= Time.deltaTime;
+            if (!IsRunning || deltaTime <= 0f || (GameManager.Instance != null && !GameManager.Instance.IsPlaying)) return;
+            TimeRemaining = Mathf.Max(0f, TimeRemaining - deltaTime);
             TimeChanged?.Invoke(TimeRemaining);
-
-            if (TimeRemaining <= 0f)
+            if (TimeRemaining == 0f)
             {
-                TimeRemaining = 0f;
                 IsRunning = false;
                 Expired?.Invoke();
             }

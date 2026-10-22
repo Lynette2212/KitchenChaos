@@ -24,9 +24,9 @@ namespace KitchenChaos.Data
         /// <summary>每秒由订单系统驱动。返回 true 表示刚刚超时。</summary>
         public bool Tick(float deltaTime)
         {
-            if (timeRemaining <= 0f) return false;
-            timeRemaining -= deltaTime;
-            return timeRemaining <= 0f;
+            if (timeRemaining <= 0f || deltaTime <= 0f) return false;
+            timeRemaining = Mathf.Max(0f, timeRemaining - deltaTime);
+            return timeRemaining == 0f;
         }
 
         public float TimeRatio
