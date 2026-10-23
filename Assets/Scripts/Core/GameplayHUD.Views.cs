@@ -18,9 +18,7 @@ namespace KitchenChaos.Core
             public StoveCounter stove;
         }
         private readonly List<StationBadge> stations = new List<StationBadge>();
-        private readonly List<Rect> badgeRects = new List<Rect>();
         private Camera kitchenCamera;
-        private Vector2 heldScroll;
 
         // Init runs after KitchenBuilder has finished creating the real counters.
         // Never search the scene or look up Camera.main from OnGUI/Update.
@@ -48,21 +46,28 @@ namespace KitchenChaos.Core
 
         private void DrawPlaying()
         {
-            Fill(new Rect(KitchenRight, 0, Width - KitchenRight, Height), Navy);
-            Fill(new Rect(KitchenRight, 0, 1, Height), Blue);
+            DrawFxPopups();
             DrawWorldBadges();
             DrawTopBar();
             DrawOrders();
+            DrawStoveWarning();
             DrawComboBanner();
-            DrawFxPopups();
             DrawHandsAndControls();
-            if (repFlash > 0f) Fill(new Rect(0, 0, KitchenRight, Height), new Color(1f, 0.18f, 0.12f, repFlash * 0.16f));
             DrawToasts();
+            if (gm.State == GameState.Playing) DrawCrosshair();
+            if (repFlash > 0f)
+            {
+                Color flash = new Color(1f, 0.18f, 0.12f, repFlash * 0.65f);
+                Fill(new Rect(0, 0, Width, 3), flash);
+                Fill(new Rect(0, Height - 3, Width, 3), flash);
+                Fill(new Rect(0, 3, 3, Height - 6), flash);
+                Fill(new Rect(Width - 3, 3, 3, Height - 6), flash);
+            }
         }
 
         private void DrawTopBar()
         {
-            Panel(new Rect(16, 16, 944, 80), Navy);
+            Panel(new Rect(16, 16, 944, 80), HudBackground);
             Text(new Rect(34, 24, 198, 22), "第 " + gm.Day.ToString("00") + " 天 / " + CampaignRules.TotalDays + " 天", small, Orange);
             Text(new Rect(34, 49, 198, 34), CampaignRules.DayName(gm.Day), heading, Cream);
             Text(new Rect(246, 24, 184, 25), "今日交单  " + gm.DayCompletedOrders + " / " + gm.DayTarget, body, Cream);
@@ -90,11 +95,12 @@ namespace KitchenChaos.Core
             Text(new Rect(1190, 27, 66, 28), count + " / 4", centered, Orange);
             if (count == 0)
             {
-                Panel(new Rect(992, 90, 272, 150), Blue);
-                Text(new Rect(1012, 114, 232, 34), "准备迎接下一位客人", body, Cream);
-                Text(new Rect(1012, 159, 232, 58), "还没有待办订单。\n整理台面，腾出双手。", small, Muted);
+                Panel(new Rect(992, 82, 272, 76), HudBackground);
+                Text(new Rect(1012, 92, 232, 26), "准备迎接下一位客人", body, Cream);
+                Text(new Rect(1012, 123, 232, 22), "整理台面，腾出双手。", small, Muted);
             }
             float y = 82f;
+            Color card = Cream; card.a = 0.94f;
             for (int i = 0; i < count; i++)
             {
                 Order order = orders[i];
@@ -110,7 +116,7 @@ namespace KitchenChaos.Core
                 float height = Mathf.Max(108f, 54f + rows * 18f);
                 Rect rect = new Rect(992 + offsetX, y, 272, height);
                 Color urgency = order.TimeRatio > 0.5f ? Mint : order.TimeRatio > 0.25f ? Orange : Red;
-                Panel(rect, Cream);
+                Panel(rect, card);
                 Fill(new Rect(rect.x + 12, rect.y + 12, 3, 18), urgency);
                 Text(new Rect(rect.x + 23, rect.y + 6, 172, 26), order.recipe.recipeName, body, Navy);
                 Text(new Rect(rect.x + 200, rect.y + 6, 62, 26), Mathf.CeilToInt(Mathf.Max(0, order.timeRemaining)) + "秒", centered, order.TimeRatio <= 0.25f ? new Color32(164, 47, 38, 255) : Blue);
@@ -132,45 +138,36 @@ namespace KitchenChaos.Core
 
         private void DrawHandsAndControls()
         {
-            Panel(new Rect(16, 552, 304, 152), Navy);
-            Panel(new Rect(332, 552, 628, 94), Navy);
-            Panel(new Rect(332, 654, 628, 50), Navy);
             if (player == null) return;
-            string held = player.HasPlate ? "手持餐盘 · " + player.Plate.Count + " 份" : player.HasItem ? "手持食材" : "双手空空";
-            Text(new Rect(32, 562, 270, 24), held, body, Orange);
+            int rows = player.HasPlate ? Mathf.Max(1, player.Plate.Count) : 1;
+            float height = 46f + rows * 19f;
+            float top = 704f - height;
+            Panel(new Rect(16, top, 304, height), HudBackground);
+            string held = player.HasPlate ? "手持餐盘 · " + player.Plate.Count + " / 5 份" : player.HasItem ? "手持食材" : "双手空空";
+            Text(new Rect(32, top + 8, 270, 24), held, body, Orange);
             if (player.HasPlate && player.Plate.Count > 0)
             {
                 var contents = player.Plate.Contents;
-                Rect viewport = new Rect(32, 590, 272, 96);
-                // Hidden built-in scrollbars: no default GUI.skin assets; wheel still scrolls overflow.
-                heldScroll = GUI.BeginScrollView(viewport, heldScroll, new Rect(0, 0, 262, contents.Count * 19), false, false, GUIStyle.none, GUIStyle.none);
-                try
+                for (int i = 0; i < contents.Count; i++)
                 {
-                    for (int i = 0; i < contents.Count; i++)
-                    {
-                        Ingredient item = contents[i];
-                        if (item == null) continue;
-                        DrawHeldRow(new Rect(0, i * 19, 262, 19), item.type, item.state);
-                    }
+                    Ingredient item = contents[i];
+                    if (item == null) continue;
+                    DrawHeldRow(new Rect(32, top + 36 + i * 19, 262, 19), item.type, item.state);
                 }
-                finally { GUI.EndScrollView(); }
-                if (contents.Count > 5) Text(new Rect(222, 567, 82, 18), "滚轮查看", micro, Muted);
             }
             else if (player.HasItem)
-            {
-                DrawHeldRow(new Rect(32, 594, 262, 24), player.CarriedItem.Type, player.CarriedItem.State);
-                Text(new Rect(32, 632, 272, 48), "加工后再装盘；\n也可以先放在暂存台。", small, Muted);
-            }
-            else Text(new Rect(32, 596, 272, 72), player.HasPlate ? "空盘准备就绪。\n加工食材先切 / 煎，再装盘。" : "靠近食材柜，按 E 拿料。\n需要装盘时，到餐盘台取盘。", small, Muted);
+                DrawHeldRow(new Rect(32, top + 36, 262, 19), player.CarriedItem.Type, player.CarriedItem.State);
+            else Text(new Rect(32, top + 36, 272, 19), player.HasPlate ? "看向熟食，E 装盘。" : "看向食材柜拿料，或到餐盘台取盘。", small, Muted);
+
+            Panel(new Rect(336, 620, 624, 84), HudBackground);
             IInteractable target = player.CurrentTarget;
-            Text(new Rect(350, 559, 590, 23), target != null ? "E  /  当前交互" : "E  /  靠近柜台开始操作", small, Orange);
-            Text(new Rect(350, 584, 592, 35), target != null ? target.GetPrompt() : "先备料，再装盘；查看右侧订单的每一项加工要求。", body, Cream);
-            Text(new Rect(350, 621, 596, 19), "长按 E 切菜 · X 取回未切食材 · 暂存台放盘继续备菜 · 蘑菇先切再煎", micro, Muted);
+            Text(new Rect(350, 628, 596, 30), target != null ? target.GetPrompt() : "靠近并看向柜台，准星变橙后按 E 操作。", body, target != null ? Cream : Muted);
+            Text(new Rect(350, 661, 596, 20), "鼠标看向 · WASD 移动 · 长按 E 切菜 · X 取回", small, Muted);
             float dash = Mathf.Clamp01(player.DashReady01);
-            Text(new Rect(350, 665, 132, 26), "Shift / Space", small, Cream);
-            Text(new Rect(491, 659, 218, 26), player.IsDashing ? "冲刺中" : dash >= 0.999f ? "冲刺就绪" : "冲刺冷却  " + Mathf.RoundToInt(dash * 100) + "%", small, dash >= 0.999f ? Mint : Muted);
-            Bar(new Rect(491, 688, 202, 4), dash, Mint);
-            if (GUI.Button(new Rect(774, 662, 172, 34), "暂停   Esc / P", secondary)) gm.TogglePause();
+            string dashState = player.IsDashing ? "冲刺中" : dash >= 0.999f ? "就绪" : "冷却 " + Mathf.RoundToInt(dash * 100) + "%";
+            Text(new Rect(350, 682, 342, 18), "Shift / Space 短冲刺 · " + dashState, micro, dash >= 0.999f ? Mint : Muted);
+            Text(new Rect(722, 682, 224, 18), "Esc / P 暂停 · 释放鼠标", small, Cream);
+            Bar(new Rect(350, 700, 160, 2), dash, Mint);
         }
 
         private void DrawHeldRow(Rect rect, IngredientType type, IngredientState state)
@@ -197,25 +194,19 @@ namespace KitchenChaos.Core
 
         private void DrawWorldBadges()
         {
-            if (kitchenCamera == null) return;
-            badgeRects.Clear();
+            if (player == null || player.CurrentTarget == null || gm.State != GameState.Playing) return;
             foreach (StationBadge station in stations)
             {
-                if (station.owner == null || station.anchor == null || !station.owner.isActiveAndEnabled) continue;
-                Vector3 screen = kitchenCamera.WorldToScreenPoint(station.anchor.position + Vector3.up * 0.95f);
-                if (screen.z <= 0 || !kitchenCamera.pixelRect.Contains(new Vector2(screen.x, screen.y))) continue;
-                // WorldToScreenPoint is in physical pixels (and already includes Camera.rect).
-                // Invert the active UI matrix rather than scaling/offsetting the camera viewport twice.
-                Vector3 point = GUI.matrix.inverse.MultiplyPoint3x4(new Vector3(screen.x, Screen.height - screen.y, 0));
-                if (point.x < 16 || point.x > KitchenRight - 16 || point.y < 102 || point.y > 548) continue;
+                if (!ReferenceEquals(player.CurrentTarget, station.target)) continue;
+                if (station.owner == null || station.anchor == null || !station.owner.isActiveAndEnabled) return;
+                if (!TryWorldToHUDPoint(station.anchor.position + Vector3.up * 0.95f, out _)) return;
                 Ingredient food = station.cutter != null ? station.cutter.PlacedIngredient : station.stove != null ? station.stove.PlacedIngredient : null;
-                bool selected = player != null && ReferenceEquals(player.CurrentTarget, station.target);
-                float width = food != null ? 150 : Mathf.Clamp(station.title.Length * 13 + 20, 68, 116);
-                float height = food != null ? 61 : 26;
-                Rect rect = PlaceBadge(new Rect(Mathf.Clamp(point.x - width / 2, 18, KitchenRight - width - 18), Mathf.Clamp(point.y - height - 6, 104, 542 - height), width, height));
-                Color accent = selected ? Orange : Muted;
+                float width = food != null ? 224f : Mathf.Clamp(station.title.Length * 14 + 24, 76, 144);
+                float height = food != null ? 58f : 26f;
+                Rect rect = new Rect((Width - width) / 2f, Height / 2f - 24f - height, width, height);
+                Color accent = Orange;
                 string status = "";
-                float progress = 0;
+                float progress = 0f;
                 if (food != null)
                 {
                     if (station.stove != null)
@@ -223,7 +214,7 @@ namespace KitchenChaos.Core
                         var stove = station.stove;
                         progress = stove.IsCooked ? stove.BurnRemaining01 : stove.Progress01;
                         accent = stove.IsBurned ? Red : stove.IsCooked ? (stove.BurnRemaining01 < 0.35f ? Red : Orange) : Mint;
-                        status = stove.IsBurned ? "已焦糊 · 取回丢弃" : stove.IsCooked ? "已熟快取！防糊 " + Mathf.CeilToInt(stove.BurnRemaining01 * 100) + "%" : "煎制中  " + Mathf.RoundToInt(progress * 100) + "%";
+                        status = stove.IsBurned ? "已焦糊 · 取回丢弃" : stove.IsCooked ? "已熟 · 距焦糊 " + stove.SecondsUntilBurn.ToString("0.0") + " 秒" : "煎制中  " + Mathf.RoundToInt(progress * 100) + "%";
                     }
                     else
                     {
@@ -233,29 +224,62 @@ namespace KitchenChaos.Core
                         status = cut ? "已切好 · E 取走" : "长按 E 切菜  " + Mathf.RoundToInt(progress * 100) + "%";
                     }
                 }
-                Panel(rect, Navy);
-                Fill(new Rect(rect.x + 7, rect.y + 7, 3, rect.height - 14), accent);
-                Text(new Rect(rect.x + 12, rect.y + 2, rect.width - 18, 23), station.title + (food != null ? " · " + IngredientCatalog.GetName(food.type) : ""), micro, selected ? Orange : Cream);
-                if (food == null) continue;
-                Text(new Rect(rect.x + 12, rect.y + 24, rect.width - 18, 22), status, micro, accent);
-                Bar(new Rect(rect.x + 12, rect.yMax - 10, rect.width - 22, 4), progress, accent);
+                Panel(rect, HudBackground);
+                Text(new Rect(rect.x + 10, rect.y + 2, rect.width - 20, 22), station.title + (food != null ? " · " + IngredientCatalog.GetName(food.type) : ""), centered, Orange);
+                if (food != null)
+                {
+                    Text(new Rect(rect.x + 10, rect.y + 24, rect.width - 20, 20), status, centered, accent);
+                    Bar(new Rect(rect.x + 12, rect.yMax - 8, rect.width - 24, 3), progress, accent);
+                }
+                return;
             }
         }
 
-        private Rect PlaceBadge(Rect original)
+        private void DrawCrosshair()
         {
-            Rect result = original;
-            for (int attempt = 0; attempt < 9; attempt++)
+            bool selected = player != null && player.CurrentTarget != null;
+            float size = selected ? 4f : 2f;
+            Rect rect = new Rect((Width - size) / 2f, (Height - size) / 2f, size, size);
+            Fill(new Rect(rect.x - 1, rect.y - 1, size + 2, size + 2), HudBackground);
+            Fill(rect, selected ? Orange : Color.white);
+        }
+
+        private bool TryWorldToHUDPoint(Vector3 worldPosition, out Vector2 point)
+        {
+            point = Vector2.zero;
+            if (kitchenCamera == null || !kitchenCamera.isActiveAndEnabled) return false;
+            Vector3 screen = kitchenCamera.WorldToScreenPoint(worldPosition);
+            if (!(screen.z >= kitchenCamera.nearClipPlane && screen.z <= kitchenCamera.farClipPlane) ||
+                !kitchenCamera.pixelRect.Contains(new Vector2(screen.x, screen.y))) return false;
+            Vector3 local = GUI.matrix.inverse.MultiplyPoint3x4(new Vector3(screen.x, Screen.height - screen.y, 0f));
+            point = new Vector2(local.x, local.y);
+            return point.x >= 0f && point.x <= Width && point.y >= 0f && point.y <= Height;
+        }
+
+        private void DrawStoveWarning()
+        {
+            if (kitchenCamera == null || gm.State != GameState.Playing) return;
+            StationBadge urgent = null;
+            float remaining = float.MaxValue;
+            foreach (StationBadge station in stations)
             {
-                int step = (attempt + 1) / 2;
-                result.y = original.y + (attempt % 2 == 1 ? -step : step) * (original.height + 4);
-                if (result.y < 104 || result.yMax > 542) continue;
-                bool overlaps = false;
-                foreach (Rect other in badgeRects) if (new Rect(other.x - 3, other.y - 3, other.width + 6, other.height + 6).Overlaps(result)) { overlaps = true; break; }
-                if (!overlaps) { badgeRects.Add(result); return result; }
+                if (station.owner == null || station.anchor == null || !station.owner.isActiveAndEnabled || station.stove == null) continue;
+                if (player != null && ReferenceEquals(player.CurrentTarget, station.target)) continue;
+                if (!station.stove.IsCooked || station.stove.IsBurned || station.stove.SecondsUntilBurn >= remaining) continue;
+                remaining = station.stove.SecondsUntilBurn;
+                urgent = station;
             }
-            badgeRects.Add(original);
-            return original;
+            if (urgent == null) return;
+            Vector3 offset = Vector3.ProjectOnPlane(urgent.anchor.position - kitchenCamera.transform.position, Vector3.up);
+            Vector3 forward = Vector3.ProjectOnPlane(kitchenCamera.transform.forward, Vector3.up);
+            if (forward.sqrMagnitude < 0.001f) forward = Vector3.Cross(kitchenCamera.transform.right, Vector3.up);
+            float angle = Vector3.SignedAngle(forward, offset, Vector3.up);
+            float turn = Mathf.Abs(angle);
+            string direction = turn < 25f ? "前方" : turn > 155f ? "身后" : turn > 115f ? (angle < 0f ? "左后方" : "右后方") : (angle < 0f ? "左侧" : "右侧");
+            Color ink = urgent.stove.BurnRemaining01 < 0.35f ? Red : Orange;
+            string food = IngredientCatalog.GetName(urgent.stove.PlacedIngredient.type);
+            Panel(new Rect(16, 112, 432, 32), HudBackground);
+            Text(new Rect(28, 116, 408, 24), direction + "灶台 · " + food + "已熟 · 距焦糊 " + remaining.ToString("0.0") + " 秒", small, ink);
         }
 
         private void DrawToasts()
@@ -266,12 +290,12 @@ namespace KitchenChaos.Core
             float age = Time.unscaledTime - item.time;
             float alpha = Mathf.Clamp01(3.5f - age);
             if (alpha <= 0) return;
-            Rect rect = new Rect(182, 495, 596, 43);
-            Color background = Blue; background.a = alpha * 0.98f;
+            Rect rect = new Rect(16, 156, 432, 48);
+            Color background = HudBackground; background.a *= alpha;
             Color ink = item.positive ? Mint : Red; ink.a = alpha;
             Panel(rect, background);
-            Fill(new Rect(rect.x + 12, rect.y + 11, 3, 21), ink);
-            Text(new Rect(rect.x + 26, rect.y + 3, rect.width - 42, 37), item.text, small, ink);
+            Fill(new Rect(rect.x + 12, rect.y + 12, 3, 24), ink);
+            Text(new Rect(rect.x + 26, rect.y + 4, rect.width - 42, 40), item.text, small, ink);
         }
 
         private void DrawComboBanner()
@@ -280,11 +304,11 @@ namespace KitchenChaos.Core
             if (age < 0f || age > 1.25f) return;
             float p = age / 1.25f;
             float alpha = p > 0.65f ? 1f - (p - 0.65f) / 0.35f : 1f;
-            float scale = Mathf.Lerp(1.55f, 1f, Mathf.Clamp01(p * 7f));
-            Rect rect = new Rect(368, 112, 240, 54);
+            float scale = Mathf.Lerp(1.2f, 1f, Mathf.Clamp01(p * 7f));
+            Rect rect = new Rect(Width / 2f - 120f, 116, 240, 44);
             Matrix4x4 matrix = GUI.matrix;
             GUIUtility.ScaleAroundPivot(new Vector2(scale, scale), rect.center);
-            Color plate = Blue; plate.a = Mathf.Min(1f, alpha * 2f);
+            Color plate = HudBackground; plate.a *= alpha;
             Panel(rect, plate);
             Fill(new Rect(rect.x + 70, rect.yMax - 4, rect.width - 140, 3), new Color(1f, 0.78f, 0.3f, alpha));
             Text(new Rect(rect.x + 2, rect.y + 3, rect.width, rect.height), "×" + bannerCombo + " 连击", comboStyle, new Color(0f, 0f, 0f, alpha * 0.5f));
@@ -294,28 +318,28 @@ namespace KitchenChaos.Core
 
         private void DrawFxPopups()
         {
-            if (kitchenCamera == null) return;
+            if (kitchenCamera == null || gm.State != GameState.Playing) return;
             FeedbackFX fx = FeedbackFX.Instance;
             if (fx == null) return;
             IReadOnlyList<FeedbackFX.PopupItem> popups = fx.Popups;
             for (int i = 0; i < popups.Count; i++)
             {
                 FeedbackFX.PopupItem popup = popups[i];
-                Vector3 screen = kitchenCamera.WorldToScreenPoint(popup.worldPos);
-                if (screen.z <= 0f) continue;
-                Vector3 point = GUI.matrix.inverse.MultiplyPoint3x4(new Vector3(screen.x, Screen.height - screen.y, 0f));
-                if (point.x < 20f || point.x > KitchenRight - 20f) continue;
+                if (popup.life <= 0f || !TryWorldToHUDPoint(popup.worldPos, out Vector2 point)) continue;
                 float t = Mathf.Clamp01(popup.age / popup.life);
                 float alpha = 1f - Mathf.Clamp01((t - 0.55f) / 0.45f);
                 if (alpha <= 0f) continue;
-                // 抬到柜台状态牌上方，避免两行文字叠在一起
-                float rise = 132f + t * 40f;
-                float scale = Mathf.Lerp(1.45f, 1f, Mathf.Clamp01(t * 5f));
+                float rise = 24f + t * 28f;
+                float scale = Mathf.Lerp(1.15f, 1f, Mathf.Clamp01(t * 5f));
                 GUIStyle style = popup.big ? popupBig : popupSmall;
-                float centerX = Mathf.Clamp(point.x, 160f, KitchenRight - 160f);
-                // 出餐台靠近货架，限制上浮高度，避免飘字压住货架名称。
-                float centerY = Mathf.Clamp(point.y - rise, 188f, 516f);
-                Rect rect = new Rect(centerX - 140f, centerY - 26f, 280f, 46f);
+                float centerX = point.x;
+                float centerY = point.y - rise;
+                Rect rect = new Rect(centerX - 140f, centerY - 23f, 280f, 46f);
+                Rect bounds = new Rect(centerX - 140f * scale, centerY - 23f * scale, 282f * scale, 48f * scale);
+                if (bounds.xMin < 16f || bounds.xMax > 976f || bounds.yMin < 212f || bounds.yMax > 612f) continue;
+                if (bounds.Overlaps(new Rect(512, 272, 256, 112)) ||
+                    bounds.Overlaps(new Rect(650, 430, 230, 140)) ||
+                    bounds.Overlaps(new Rect(16, 560, 304, 144))) continue;
                 Matrix4x4 matrix = GUI.matrix;
                 GUIUtility.ScaleAroundPivot(new Vector2(scale, scale), new Vector2(centerX, centerY));
                 Text(new Rect(rect.x + 2f, rect.y + 2f, rect.width, rect.height), popup.text, style, new Color(0f, 0f, 0f, alpha * 0.55f));

@@ -11,7 +11,6 @@ namespace KitchenChaos.Gameplay
         private readonly List<Ingredient> contents = new List<Ingredient>();
         private readonly List<GameObject> stacked = new List<GameObject>();
         private GameObject plateBody;
-        private Material bodyMaterial;
 
         public IReadOnlyList<Ingredient> Contents => contents;
         public int Count => contents.Count;
@@ -20,18 +19,10 @@ namespace KitchenChaos.Gameplay
         {
             SetPosition(transform.parent, holdOffset);
             if (plateBody != null) return;
-            plateBody = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            Collider col = plateBody.GetComponent<Collider>();
-            if (col != null)
-            {
-                col.enabled = false;
-                Destroy(col);
-            }
+            plateBody = VisualFactory.CreateProp("plate-dinner");
             plateBody.name = "PlateBody";
             plateBody.transform.SetParent(transform, false);
-            plateBody.transform.localScale = new Vector3(0.85f, 0.06f, 0.85f);
-            bodyMaterial = Visual.VisualFactory.MakeMaterial(new Color(0.96f, 0.96f, 0.98f), 0.6f);
-            plateBody.GetComponent<Renderer>().sharedMaterial = bodyMaterial;
+            foreach (Transform part in plateBody.GetComponentsInChildren<Transform>(true)) part.gameObject.layer = gameObject.layer;
         }
 
         public void SetPosition(Transform parent, Vector3 offset)
@@ -40,6 +31,8 @@ namespace KitchenChaos.Gameplay
             transform.localPosition = offset;
             transform.localRotation = Quaternion.identity;
             transform.localScale = Vector3.one;
+            int layer = parent != null ? parent.gameObject.layer : 0;
+            foreach (Transform part in GetComponentsInChildren<Transform>(true)) part.gameObject.layer = layer;
         }
 
         public string GetAddFailureReason(Ingredient data)
@@ -84,6 +77,8 @@ namespace KitchenChaos.Gameplay
             {
                 GameObject visual = Visual.VisualFactory.CreateIngredientVisual(contents[i].type, contents[i].state);
                 visual.transform.SetParent(transform, false);
+                foreach (Transform part in visual.GetComponentsInChildren<Transform>(true))
+                    part.gameObject.layer = gameObject.layer;
                 stacked.Add(visual);
             }
             for (int i = 0; i < stacked.Count; i++)

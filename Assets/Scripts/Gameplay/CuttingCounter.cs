@@ -126,15 +126,15 @@ namespace KitchenChaos.Gameplay
             FeedbackFX.Burst(done, IngredientCatalog.GetColor(placed.Type), 12, 2.4f, 0.08f, 5f, 0.5f);
             FeedbackFX.Punch(placed.transform, 0.35f, 0.45f);
             FeedbackFX.Popup(done + Vector3.up * 0.35f, "切好了", new Color(0.55f, 0.95f, 0.8f), false);
-            if (AudioManager.Instance != null) AudioManager.Instance.Play(SfxType.ChopDone);
+            Play(SfxType.ChopDone);
             chopping = false;
         }
 
         public void ResetStation() => ClearPlaced();
 
-        private static void Play(SfxType sound)
+        private void Play(SfxType sound)
         {
-            if (AudioManager.Instance != null) AudioManager.Instance.Play(sound);
+            if (AudioManager.Instance != null) AudioManager.Instance.PlayAt(sound, transform.position + Vector3.up * 0.65f);
         }
 
         public string GetPrompt()

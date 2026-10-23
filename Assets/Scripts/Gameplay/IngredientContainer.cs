@@ -40,7 +40,7 @@ namespace KitchenChaos.Gameplay
             Transform sample = transform.Find("Sample");
             if (sample != null) FeedbackFX.Punch(sample, 0.3f, 0.35f);
             FeedbackFX.Burst(transform.position + Vector3.up * 0.85f, IngredientCatalog.GetColor(ingredientType), 6, 1.8f, 0.06f, 5f, 0.4f);
-            if (AudioManager.Instance != null) AudioManager.Instance.Play(SfxType.Pickup);
+            if (AudioManager.Instance != null) AudioManager.Instance.PlayAt(SfxType.Pickup, transform.position + Vector3.up * 0.65f);
         }
 
         public string GetPrompt() => "按 E 拿取 " + IngredientCatalog.GetName(ingredientType);

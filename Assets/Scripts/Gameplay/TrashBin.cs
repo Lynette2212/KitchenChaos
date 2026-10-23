@@ -29,7 +29,7 @@ namespace KitchenChaos.Gameplay
             FeedbackFX.Puff(mouth, new Color(0.68f, 0.7f, 0.64f), 3, 0.16f, 0.8f, 0.55f);
             FeedbackFX.Burst(mouth, new Color(0.55f, 0.58f, 0.5f), 6, 1.6f, 0.06f, 6f, 0.4f);
             FeedbackFX.Shake(0.03f, 0.08f);
-            if (AudioManager.Instance != null) AudioManager.Instance.Play(SfxType.Drop);
+            if (AudioManager.Instance != null) AudioManager.Instance.PlayAt(SfxType.Trash, mouth);
         }
 
         public string GetPrompt() => "按 E 丢弃手持食材或盘内菜品（保留空盘）";

@@ -10,7 +10,6 @@ namespace KitchenChaos.Gameplay
         [SerializeField] private int plateCount = 4;
         [SerializeField] private Transform stackAnchor;
         private readonly List<GameObject> plateVisuals = new List<GameObject>();
-        private Material plateMaterial;
         private int initialPlateCount;
         private bool initialized;
 
@@ -30,8 +29,6 @@ namespace KitchenChaos.Gameplay
         private void BuildVisualStack()
         {
             if (stackAnchor == null) stackAnchor = transform.Find("ItemAnchor");
-            if (plateMaterial == null)
-                plateMaterial = Visual.VisualFactory.MakeMaterial(new Color(0.95f, 0.95f, 0.97f), 0.6f);
             while (plateVisuals.Count > plateCount)
             {
                 int last = plateVisuals.Count - 1;
@@ -43,18 +40,11 @@ namespace KitchenChaos.Gameplay
             }
             for (int i = plateVisuals.Count; i < plateCount; i++)
             {
-                GameObject disk = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-                Collider col = disk.GetComponent<Collider>();
-                if (col != null)
-                {
-                    col.enabled = false;
-                    Destroy(col);
-                }
+                GameObject disk = VisualFactory.CreateProp("plate-dinner");
                 disk.name = "Plate";
                 disk.transform.SetParent(stackAnchor != null ? stackAnchor : transform, false);
-                disk.transform.localScale = new Vector3(0.9f, 0.06f, 0.9f);
-                disk.transform.localPosition = new Vector3(0f, (stackAnchor != null ? 0.04f : 0.59f) + i * 0.08f, 0f);
-                disk.GetComponent<Renderer>().sharedMaterial = plateMaterial;
+                disk.transform.localScale = new Vector3(1f, 0.8f, 1f);
+                disk.transform.localPosition = new Vector3(0f, (stackAnchor != null ? 0.025f : 0.575f) + i * 0.065f, 0f);
                 plateVisuals.Add(disk);
             }
         }
@@ -72,7 +62,7 @@ namespace KitchenChaos.Gameplay
                 plateCount++;
                 BuildVisualStack();
                 FeedbackFX.Puff(StackTop() + Vector3.up * 0.1f, new Color(0.9f, 0.92f, 0.95f), 2, 0.1f, 0.4f, 0.35f);
-                Play(SfxType.Drop);
+                Play(SfxType.PlatePlace);
                 return true;
             }
             if (!player.CanTake()) return player.RejectInteraction("请先把食材放到暂存台，再来拿盘子");
@@ -84,9 +74,9 @@ namespace KitchenChaos.Gameplay
             PlateHandle plate = go.AddComponent<PlateHandle>();
             plate.Init(Vector3.zero);
             player.AttachPlate(plate);
-            FeedbackFX.Punch(plate.transform, 0.3f, 0.35f);
+            FeedbackFX.Punch(plate.transform.Find("PlateBody"), 0.3f, 0.35f);
             FeedbackFX.Puff(StackTop() + Vector3.up * 0.1f, new Color(0.9f, 0.92f, 0.95f), 2, 0.1f, 0.4f, 0.35f);
-            Play(SfxType.Pickup);
+            Play(SfxType.PlatePickup);
             return true;
         }
 
@@ -104,9 +94,9 @@ namespace KitchenChaos.Gameplay
             BuildVisualStack();
         }
 
-        private static void Play(SfxType sound)
+        private void Play(SfxType sound)
         {
-            if (AudioManager.Instance != null) AudioManager.Instance.Play(sound);
+            if (AudioManager.Instance != null) AudioManager.Instance.PlayAt(sound, StackTop());
         }
 
         public string GetPrompt() => "餐盘台：空手 E 端盘，E 归还空盘（剩 " + plateCount + " 个）";

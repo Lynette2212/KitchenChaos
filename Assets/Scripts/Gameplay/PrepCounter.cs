@@ -24,7 +24,7 @@ namespace KitchenChaos.Gameplay
                     PlateHandle stored = plate;
                     plate = null;
                     player.AttachPlate(stored);
-                    Play(SfxType.Pickup);
+                    Play(SfxType.PlatePickup);
                     return true;
                 }
                 if (!player.HasItem) return player.RejectInteraction("暂存台已有一个盘子，请先腾出双手取走");
@@ -72,7 +72,7 @@ namespace KitchenChaos.Gameplay
                 placed = go.AddComponent<IngredientItem>();
                 placed.Setup(data);
             }
-            Play(SfxType.Drop);
+            Play(plate != null ? SfxType.PlatePlace : SfxType.Drop);
             return true;
         }
 
@@ -91,9 +91,9 @@ namespace KitchenChaos.Gameplay
             plate = null;
         }
 
-        private static void Play(SfxType sound)
+        private void Play(SfxType sound)
         {
-            if (AudioManager.Instance != null) AudioManager.Instance.Play(sound);
+            if (AudioManager.Instance != null) AudioManager.Instance.PlayAt(sound, transform.position + Vector3.up * 0.65f);
         }
 
         public string GetPrompt()

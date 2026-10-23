@@ -13,7 +13,9 @@ namespace KitchenChaos.Gameplay
         private IngredientItem placed;
         private float cookTimer;
         private float burnTimer;
-        private float sizzleCooldown;
+        private AudioSource sizzleSource;
+        private AudioManager audioOwner;
+        public AudioSource SizzleSource => sizzleSource;
         private float smokeTimer;
         private float warnCooldown;
         private bool warned;
@@ -75,16 +77,15 @@ namespace KitchenChaos.Gameplay
             if (itemAnchor == null) itemAnchor = transform.Find("ItemAnchor");
             GameObject go = new GameObject("StoveIngredient");
             go.transform.SetParent(itemAnchor != null ? itemAnchor : transform, false);
-            go.transform.localPosition = itemAnchor != null ? new Vector3(0f, 0.06f, 0f)
-                : new Vector3(0f, 0.61f, 0f);
+            go.transform.localPosition = itemAnchor != null ? Vector3.zero : new Vector3(0f, 0.61f, 0f);
             placed = go.AddComponent<IngredientItem>();
             placed.Setup(data);
             cookTimer = 0f;
             burnTimer = 0f;
-            sizzleCooldown = 0f;
             smokeTimer = 0f;
             warnCooldown = 0f;
             warned = false;
+            SyncSizzle();
         }
 
         private void ClearPlaced()
@@ -97,13 +98,40 @@ namespace KitchenChaos.Gameplay
             placed = null;
             cookTimer = 0f;
             burnTimer = 0f;
-            sizzleCooldown = 0f;
             smokeTimer = 0f;
             warnCooldown = 0f;
             warned = false;
+            SyncSizzle();
         }
 
-        private void Update() => AdvanceProcessing(Time.deltaTime);
+        private void Update()
+        {
+            AdvanceProcessing(Time.deltaTime);
+            SyncSizzle();
+        }
+
+        private void SyncSizzle()
+        {
+            // IsProcessing is false while paused, but the pan still contains its ingredient.
+            bool hasFood = isActiveAndEnabled && placed != null && !IsBurned;
+            if (hasFood && sizzleSource == null && AudioManager.Instance != null)
+            {
+                audioOwner = AudioManager.Instance;
+                sizzleSource = audioOwner.CreateLoopSource(transform, SfxType.Sizzle);
+            }
+            if (audioOwner != null && sizzleSource != null)
+                audioOwner.SetLoopLevel(sizzleSource, hasFood ? (IsCooked ? 0.62f : 1f) : 0f);
+        }
+
+        private void OnDisable()
+        {
+            if (audioOwner != null && sizzleSource != null) audioOwner.SetLoopLevel(sizzleSource, 0f);
+        }
+
+        private void OnDestroy()
+        {
+            if (audioOwner != null && sizzleSource != null) audioOwner.ReleaseLoopSource(sizzleSource);
+        }
 
         public void AdvanceProcessing(float dt)
         {
@@ -127,6 +155,7 @@ namespace KitchenChaos.Gameplay
                 {
                     cookTimer = need;
                     placed.SetState(IngredientState.Cooked);
+                    SyncSizzle();
                     burnDelta = dt - secondsToCook;
                     Play(SfxType.Cooked);
                     Vector3 done = placed.transform.position + Vector3.up * 0.3f;
@@ -144,12 +173,6 @@ namespace KitchenChaos.Gameplay
                 FeedbackFX.Puff(placed.transform.position + Vector3.up * 0.35f, new Color(0.72f, 0.73f, 0.7f), 1, 0.17f, 0.85f, 0.85f);
             }
 
-            sizzleCooldown -= dt;
-            if (sizzleCooldown <= 0f)
-            {
-                Play(SfxType.Sizzle);
-                sizzleCooldown = 0.9f;
-            }
             if (!IsCooked) return;
 
             if (BurnRemaining01 < 0.35f)
@@ -173,6 +196,7 @@ namespace KitchenChaos.Gameplay
             if (burnTimer < BurnDuration) return;
             Vector3 charred = placed.transform.position + Vector3.up * 0.3f;
             placed.SetState(IngredientState.Burned);
+            SyncSizzle();
             Play(SfxType.Burned);
             FeedbackFX.Burst(charred, new Color(0.16f, 0.14f, 0.12f), 16, 2.6f, 0.09f, 7f, 0.65f);
             FeedbackFX.Puff(charred + Vector3.up * 0.2f, new Color(0.28f, 0.27f, 0.25f), 5, 0.24f, 1.2f, 1.1f);
@@ -182,9 +206,9 @@ namespace KitchenChaos.Gameplay
 
         public void ResetStation() => ClearPlaced();
 
-        private static void Play(SfxType sound)
+        private void Play(SfxType sound)
         {
-            if (AudioManager.Instance != null) AudioManager.Instance.Play(sound);
+            if (AudioManager.Instance != null) AudioManager.Instance.PlayAt(sound, transform.position + Vector3.up * 0.65f);
         }
 
         public string GetPrompt()

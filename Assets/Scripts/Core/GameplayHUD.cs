@@ -8,10 +8,12 @@ using KitchenChaos.Visual;
 namespace KitchenChaos.Core
 {
     // UI uses reference pixels; only this component owns menu/pause/restart hotkeys.
+    [DefaultExecutionOrder(-20)]
     public partial class GameplayHUD : MonoBehaviour
     {
-        private const float Width = 1280f, Height = 720f, KitchenRight = 976f;
+        private const float Width = 1280f, Height = 720f;
         private static readonly Color Navy = new Color32(13, 32, 49, 255);
+        private static readonly Color HudBackground = new Color32(13, 32, 49, 208);
         private static readonly Color Blue = new Color32(25, 52, 70, 255);
         private static readonly Color Cream = new Color32(249, 244, 231, 255);
         private static readonly Color Muted = new Color32(168, 190, 200, 255);
@@ -110,20 +112,20 @@ namespace KitchenChaos.Core
         private void StartJourney()
         {
             if (gm.State != GameState.Ready && gm.State != GameState.GameOver && gm.State != GameState.Victory) return;
-            toasts.Clear(); heldScroll = Vector2.zero; confirmMenu = false;
+            toasts.Clear(); confirmMenu = false;
             gm.StartGame(); observedState = gm.State;
         }
 
         private void SelectUpgrade(int index)
         {
             if (gm.State != GameState.DayComplete || gm.UpgradeChoices == null || index >= gm.UpgradeChoices.Length) return;
-            toasts.Clear(); heldScroll = Vector2.zero;
+            toasts.Clear();
             gm.ChooseUpgrade(index); observedState = gm.State;
         }
 
         private void ReturnMenu()
         {
-            confirmMenu = false; toasts.Clear(); heldScroll = Vector2.zero;
+            confirmMenu = false; toasts.Clear();
             gm.ReturnToMenu(); observedState = gm.State;
         }
 
@@ -231,23 +233,41 @@ namespace KitchenChaos.Core
                 Text(new Rect(x + 18, 355, 194, 24), notes[i], small, i == 0 ? Blue : Muted);
             }
             Panel(new Rect(48, 428, 740, 244), Blue);
-            Text(new Rect(72, 448, 660, 34), "开灶前，记住这几件事", heading, Cream);
-            Text(new Rect(72, 493, 690, 155), "WASD / 方向键移动   ·   Shift / Space 冲刺\nE 拿取、放置、装盘、出餐；长按 E 切菜\nX 取回未切食材   ·   Esc / P 暂停\n暂存台放盘继续备菜；蘑菇必须先切再煎\n按订单要求装盘，留意火候，保持连击。", body, Muted);
+            Text(new Rect(72, 448, 660, 34), "第一人称开灶，记住这几件事", heading, Cream);
+            Text(new Rect(72, 493, 690, 155), "鼠标看向 · WASD 移动 · Shift / Space 短冲刺\n对准柜台：E 拿放、装盘、出餐；长按 E 切菜\nX 取回未切食材 · Esc / P 暂停并释放鼠标\n暂存台放盘继续备菜；蘑菇必须先切再煎\n按订单要求装盘，留意火候，保持连击。", body, Muted);
             Panel(new Rect(812, 428, 420, 244), Cream);
             Text(new Rect(836, 450, 372, 36), "五天，一间好餐厅。", heading, Navy);
             Text(new Rect(836, 495, 372, 64), "完成当天交单目标即可收工。\n挑选升级，再迎接明天的客人。", body, Blue);
             if (GUI.Button(new Rect(836, 577, 372, 54), "开始营业    Enter", primary)) StartJourney();
             Text(new Rect(836, 640, 372, 22), "本地自动记录 · 无需联网", micro, Blue);
+            Text(new Rect(48, 682, 950, 24), "BGM: Morning Brew / Cozy Music Sampler — Spaceyyy · 已调整音量与边缘淡化 · 食材与音效采样: Kenney (CC0)", micro, Muted);
+            if (GUI.Button(new Rect(1012, 680, 104, 28), "音乐来源", secondary))
+                Application.OpenURL("https://opengameart.org/content/cozy-music-sampler-%E2%80%94-7-seamless-loops-lofi-farm-fantasy-tavern-halloween-winter-caf%C3%A9-space");
+            if (GUI.Button(new Rect(1124, 680, 108, 28), "CC BY 4.0", secondary))
+                Application.OpenURL("https://creativecommons.org/licenses/by/4.0/");
         }
 
         private void DrawPaused()
         {
-            Dim(); Panel(new Rect(386, 176, 508, 368), Navy);
-            Text(new Rect(418, 202, 444, 54), "营业已暂停", hero, Cream);
-            Text(new Rect(418, 266, 444, 28), "订单、灶火与计时均已暂停。", body, Muted);
-            Text(new Rect(418, 307, 444, 70), "当前升级\n" + gm.UpgradeSummary, small, Muted);
-            if (GUI.Button(new Rect(418, 395, 444, 54), "继续营业    Esc / P", primary)) gm.TogglePause();
-            if (GUI.Button(new Rect(418, 463, 444, 46), "回到主菜单", secondary)) confirmMenu = true;
+            Dim(); Panel(new Rect(386, 108, 508, 504), Navy);
+            Text(new Rect(418, 132, 444, 54), "营业已暂停", hero, Cream);
+            Text(new Rect(418, 196, 444, 28), "订单、灶火与计时已暂停 · 鼠标已释放", body, Muted);
+            Text(new Rect(418, 237, 444, 70), "当前升级\n" + gm.UpgradeSummary, small, Muted);
+            AudioManager audio = AudioManager.Instance;
+            bool enabled = GUI.enabled;
+            GUI.enabled = enabled && audio != null;
+            float musicLevel = audio != null ? Mathf.Clamp01(audio.musicVolume) : 0f;
+            float sfxLevel = audio != null ? Mathf.Clamp01(audio.volume) : 0f;
+            Text(new Rect(418, 323, 104, 28), "音乐", body, Cream);
+            musicLevel = GUI.HorizontalSlider(new Rect(528, 331, 250, 24), musicLevel, 0f, 1f);
+            Text(new Rect(798, 323, 64, 28), Mathf.RoundToInt(musicLevel * 100f) + "%", small, Muted);
+            Text(new Rect(418, 381, 104, 28), "音效", body, Cream);
+            sfxLevel = GUI.HorizontalSlider(new Rect(528, 389, 250, 24), sfxLevel, 0f, 1f);
+            Text(new Rect(798, 381, 64, 28), Mathf.RoundToInt(sfxLevel * 100f) + "%", small, Muted);
+            if (audio != null) { audio.musicVolume = musicLevel; audio.volume = sfxLevel; }
+            GUI.enabled = enabled;
+            if (GUI.Button(new Rect(418, 463, 444, 54), "继续营业    Esc / P", primary)) gm.TogglePause();
+            if (GUI.Button(new Rect(418, 535, 444, 46), "回到主菜单", secondary)) confirmMenu = true;
         }
 
         private void DrawDayComplete()

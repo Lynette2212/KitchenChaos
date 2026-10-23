@@ -68,11 +68,14 @@ namespace KitchenChaos.EditorTools
                 prep = UnityEngine.Object.FindAnyObjectByType<PrepCounter>();
                 delivery = UnityEngine.Object.FindAnyObjectByType<DeliveryCounter>();
                 VerifySceneAndRules();
+                VerifyArtAssets();
+                VerifyFirstPerson();
                 VerifyEveryRecipe();
                 VerifyProcessingAndPause();
                 VerifyCampaign();
                 VerifyUpgradeEffects();
                 VerifyFeedback();
+                VerifyAudio();
                 gm.ReturnToMenu();
             }
             catch (Exception exception)

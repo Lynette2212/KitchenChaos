@@ -67,6 +67,8 @@ namespace KitchenChaos.Gameplay
             visual.transform.SetParent(transform, false);
             visual.transform.localPosition = Vector3.zero;
             visual.transform.localRotation = Quaternion.identity;
+            foreach (Transform part in visual.GetComponentsInChildren<Transform>(true))
+                part.gameObject.layer = gameObject.layer;
         }
 
         public void SetState(IngredientState newState)

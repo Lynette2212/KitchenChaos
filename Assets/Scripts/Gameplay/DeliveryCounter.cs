@@ -46,14 +46,13 @@ namespace KitchenChaos.Gameplay
             if (success)
             {
                 int gained = manager.Score != null ? manager.Score.LastGained : 0;
-                int combo = manager.Score != null ? manager.Score.Combo : 0;
                 FeedbackFX.Confetti(origin + Vector3.up * 0.2f, 26);
                 FeedbackFX.Burst(origin, new Color(1f, 0.82f, 0.35f), 10, 2.8f, 0.08f, 5f, 0.5f);
                 FeedbackFX.Punch(bell, 0.5f, 0.5f);
                 FeedbackFX.Popup(origin + Vector3.up * 0.55f, "+" + gained, new Color(1f, 0.84f, 0.4f), true);
                 FeedbackFX.Shake(0.07f, 0.16f);
                 if (AudioManager.Instance != null)
-                    AudioManager.Instance.Play(SfxType.Bell, 1f + Mathf.Min(combo, 12) * 0.04f);
+                    AudioManager.Instance.Play(SfxType.Bell);
             }
             else
             {
