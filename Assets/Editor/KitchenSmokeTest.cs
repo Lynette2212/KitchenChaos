@@ -37,8 +37,8 @@ namespace KitchenChaos.EditorTools
             if (!Application.isBatchMode) throw new InvalidOperationException("RunBatch is for a separate batch-mode Editor, not an open working scene.");
             SessionState.SetBool(SessionKey, true);
             SessionState.SetFloat(SessionKey + ".Start", (float)EditorApplication.timeSinceStartup);
-            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-            new GameObject("KitchenChaos").AddComponent<KitchenBuilder>();
+            // 用正式场景：Unity 退出时会记住当前场景，临时空场景会让下次打开项目只剩空白。
+            EditorSceneManager.OpenScene(KitchenSetup.ScenePath, OpenSceneMode.Single);
             EditorApplication.update -= WaitForKitchen;
             EditorApplication.update += WaitForKitchen;
             Application.logMessageReceived -= CaptureError;

@@ -36,8 +36,8 @@ namespace KitchenChaos.EditorTools
             }
             Directory.CreateDirectory(Folder);
             SessionState.SetBool(SessionKey, true);
-            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-            new GameObject("KitchenChaos").AddComponent<KitchenBuilder>();
+            // 用正式场景：Unity 退出时会记住当前场景，临时空场景会让下次打开项目只剩空白。
+            EditorSceneManager.OpenScene(KitchenSetup.ScenePath, OpenSceneMode.Single);
             System.Type gameView = typeof(EditorWindow).Assembly.GetType("UnityEditor.GameView");
             if (gameView != null) EditorWindow.GetWindow(gameView).Focus();
             EditorApplication.isPlaying = true;
