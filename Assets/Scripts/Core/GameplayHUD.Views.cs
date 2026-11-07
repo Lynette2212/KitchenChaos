@@ -212,9 +212,11 @@ namespace KitchenChaos.Core
                     if (station.stove != null)
                     {
                         var stove = station.stove;
-                        progress = stove.IsCooked ? stove.BurnRemaining01 : stove.Progress01;
+                        progress = stove.IsBurned ? 1f : stove.IsCooked ? stove.BurnRemaining01 : stove.Progress01;
                         accent = stove.IsBurned ? Red : stove.IsCooked ? (stove.BurnRemaining01 < 0.35f ? Red : Orange) : Mint;
-                        status = stove.IsBurned ? "已焦糊 · 取回丢弃" : stove.IsCooked ? "已熟 · 距焦糊 " + stove.SecondsUntilBurn.ToString("0.0") + " 秒" : "煎制中  " + Mathf.RoundToInt(progress * 100) + "%";
+                        status = stove.IsBurned ? "已焦糊 · 取回丢弃"
+                            : stove.IsCooked ? stove.CookedCount + " 份可取 · 距焦糊 " + stove.SecondsUntilBurn.ToString("0.0") + " 秒"
+                            : "煎制中  " + Mathf.RoundToInt(stove.Progress01 * 100f) + "% · 共 " + stove.OccupiedCount + " 份";
                     }
                     else
                     {

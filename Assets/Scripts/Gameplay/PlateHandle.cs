@@ -11,6 +11,7 @@ namespace KitchenChaos.Gameplay
         private readonly List<Ingredient> contents = new List<Ingredient>();
         private readonly List<GameObject> stacked = new List<GameObject>();
         private GameObject plateBody;
+        private GameObject bunTop;
 
         public IReadOnlyList<Ingredient> Contents => contents;
         public int Count => contents.Count;
@@ -74,18 +75,93 @@ namespace KitchenChaos.Gameplay
         private void RefreshStack()
         {
             for (int i = stacked.Count; i < contents.Count; i++)
+                stacked.Add(CreateVisual(contents[i]));
+
+            BurgerStackLayout layout = BurgerStackLayout.FindTemplate();
+            if (layout == null || contents.Count < 2)
             {
-                GameObject visual = Visual.VisualFactory.CreateIngredientVisual(contents[i].type, contents[i].state);
-                visual.transform.SetParent(transform, false);
-                foreach (Transform part in visual.GetComponentsInChildren<Transform>(true))
-                    part.gameObject.layer = gameObject.layer;
-                stacked.Add(visual);
+                ReleaseBunTop();
+                for (int i = 0; i < stacked.Count; i++)
+                {
+                    stacked[i].transform.localPosition = new Vector3(0f, 0.06f + i * 0.08f, 0f);
+                    stacked[i].transform.localRotation = Quaternion.Euler(0f, i * 40f, 0f);
+                    stacked[i].transform.localScale = Vector3.one;
+                }
+                return;
             }
-            for (int i = 0; i < stacked.Count; i++)
+
+            EnsureBunTop();
+            BurgerStackLayout.Layer[] layers = layout.Capture();
+            bool hasBun = Has(IngredientType.Bun);
+            float shift = 0f;
+            for (int i = 0; i < layers.Length; i++)
             {
-                stacked[i].transform.localPosition = new Vector3(0f, 0.06f + i * 0.08f, 0f);
-                stacked[i].transform.localRotation = Quaternion.Euler(0f, i * 40f, 0f);
+                bool present = layers[i].topBun ? hasBun : Has(layers[i].type);
+                if (!present)
+                {
+                    float nextY = i + 1 < layers.Length ? layers[i + 1].localPosition.y : layers[i].localPosition.y;
+                    shift += nextY - layers[i].localPosition.y;
+                    continue;
+                }
+                Transform visual = layers[i].topBun ? (bunTop != null ? bunTop.transform : null) : VisualFor(layers[i].type);
+                if (visual == null) continue;
+                Vector3 position = layers[i].localPosition;
+                position.y -= shift;
+                visual.localPosition = position;
+                visual.localRotation = layers[i].localRotation;
+                visual.localScale = layers[i].localScale;
             }
+        }
+
+        private GameObject CreateVisual(Ingredient data)
+        {
+            GameObject visual = VisualFactory.CreateIngredientVisual(data.type, data.state);
+            visual.transform.SetParent(transform, false);
+            ApplyLayer(visual);
+            return visual;
+        }
+
+        private void EnsureBunTop()
+        {
+            if (!Has(IngredientType.Bun))
+            {
+                ReleaseBunTop();
+                return;
+            }
+            if (bunTop != null) return;
+            Ingredient bun = null;
+            foreach (Ingredient item in contents)
+                if (item.type == IngredientType.Bun) bun = item;
+            bunTop = CreateVisual(bun);
+            bunTop.name = "BunTop";
+        }
+
+        private bool Has(IngredientType type)
+        {
+            foreach (Ingredient item in contents)
+                if (item.type == type) return true;
+            return false;
+        }
+
+        private Transform VisualFor(IngredientType type)
+        {
+            for (int i = 0; i < contents.Count; i++)
+                if (contents[i].type == type) return stacked[i].transform;
+            return null;
+        }
+
+        private void ApplyLayer(GameObject visual)
+        {
+            foreach (Transform part in visual.GetComponentsInChildren<Transform>(true))
+                part.gameObject.layer = gameObject.layer;
+        }
+
+        private void ReleaseBunTop()
+        {
+            if (bunTop == null) return;
+            bunTop.SetActive(false);
+            Destroy(bunTop);
+            bunTop = null;
         }
 
         private void ReleaseStack()
@@ -97,6 +173,7 @@ namespace KitchenChaos.Gameplay
                 Destroy(visual);
             }
             stacked.Clear();
+            ReleaseBunTop();
         }
 
         public void ReturnToCounter()

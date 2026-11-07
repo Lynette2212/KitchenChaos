@@ -270,7 +270,7 @@ namespace KitchenChaos.EditorTools
             stove.Interact(player);
             yield return new WaitForSeconds(0.2f);
             stove.AdvanceProcessing(20f);
-            Debug.Assert(stove.IsBurned && !loop.isPlaying && loop.volume == 0f, "Burning stops the frying loop.");
+            Debug.Assert(stove.IsBurned && !loop.isPlaying && loop.volume == 0f, "Burning stops the griddle loop.");
             gm.ReturnToMenu();
             gm.StartGame();
             gm.Orders.StopSpawning();

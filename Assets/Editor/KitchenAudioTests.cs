@@ -450,15 +450,17 @@ namespace KitchenChaos.EditorTools
             stove.ResetStation();
             Expect(stove.PlacedIngredient == null && AudioLoopIdle(audio, first), "ResetStation clears a previously active raw loop");
             other.AdvanceProcessing(cookTime + 0.01f);
-            Expect(other.IsCooked && Mathf.Abs(AudioLoopLevel(audio, second) - 0.62f) < 0.0001f, "second pan independently reaches cooked level");
+            Expect(other.IsCooked && Mathf.Abs(AudioLoopLevel(audio, second) - 0.62f) < 0.0001f, "second griddle independently reaches the stocked level");
             other.AdvanceProcessing(other.SecondsUntilBurn + 0.01f);
-            Expect(other.IsBurned && AudioLoopIdle(audio, second), "burning synchronously clears sizzle level, gain and volume");
+            Expect(other.IsBurned && AudioLoopIdle(audio, second), "burning synchronously clears the griddle sizzle");
+            other.ResetStation();
+            Expect(AudioLoopIdle(audio, second), "clearing the griddle stops its loop");
             gm.TogglePause();
             gm.TogglePause();
             AudioInvoke(stove, "SyncSizzle");
             AudioInvoke(other, "SyncSizzle");
             AudioInvoke(audio, "UpdateLoops", 1f);
-            Expect(AudioLoopIdle(audio, first) && AudioLoopIdle(audio, second), "reset and burned pans stay silent after pause/resume");
+            Expect(AudioLoopIdle(audio, first) && AudioLoopIdle(audio, second), "empty griddles stay silent after pause/resume");
             NewRun();
             Expect(AudioLoopIdle(audio, first) && AudioLoopIdle(audio, second), "new run leaves both retained stove sources with zero contents level");
         }

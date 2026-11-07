@@ -80,7 +80,7 @@ namespace KitchenChaos.Core
             CreateWall("Wall_N", new Vector3(0f, 1.5f, 3.5f), new Vector3(9f, 3f, 0.3f), wallMat);
             CreateWall("Wall_S", new Vector3(0f, 1.5f, -3.5f), new Vector3(9f, 3f, 0.3f), wallMat);
             CreateWall("Wall_W", new Vector3(-4.5f, 1.5f, 0f), new Vector3(0.3f, 3f, 7f), sideWallMat);
-            CreateWall("Wall_E", new Vector3(4.5f, 1.5f, 0f), new Vector3(0.3f, 3f, 7f), sideWallMat);
+            BuildServiceWindow(sideWallMat);
             GameObject ceiling = GameObject.CreatePrimitive(PrimitiveType.Cube);
             ceiling.name = "Ceiling";
             ceiling.transform.SetParent(transform, false);
@@ -250,18 +250,17 @@ namespace KitchenChaos.Core
                 Vector3 pos = new Vector3(startX + i * spacing, 0.5f, -2.4f);
                 GameObject c = MakeCounter("StoveCounter_" + i, pos, new Color(0.25f, 0.25f, 0.28f));
                 // 灶眼
-                GameObject burner = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-                burner.name = "Burner";
-                Collider bc = burner.GetComponent<Collider>();
-                if (bc != null) { bc.enabled = false; Destroy(bc); }
-                burner.transform.SetParent(c.transform, false);
-                burner.transform.localPosition = new Vector3(0f, 0.56f, 0f);
-                burner.transform.localScale = new Vector3(0.6f, 0.05f, 0.6f);
-                burner.GetComponent<Renderer>().sharedMaterial = Visual.VisualFactory.Surface("Grill");
                 c.transform.Find("CounterTop").GetComponent<Renderer>().sharedMaterial = Visual.VisualFactory.Surface("Steel");
-                GameObject pan = PlaceProp("frying-pan", c.transform, new Vector3(0f, 0.605f, 0f), new Vector3(1.65f, 0.65f, 1.65f), 135);
-                c.transform.Find("ItemAnchor").position = pan.transform.Find("CookingSurface").position;
-                StationLabel(c, "HOT / GRILL");
+                GameObject griddle = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                griddle.name = "Griddle";
+                Collider griddleCollider = griddle.GetComponent<Collider>();
+                if (griddleCollider != null) { griddleCollider.enabled = false; Destroy(griddleCollider); }
+                griddle.transform.SetParent(c.transform, false);
+                griddle.transform.localPosition = new Vector3(0f, 0.6f, 0.02f);
+                griddle.transform.localScale = new Vector3(0.92f, 0.045f, 0.78f);
+                griddle.GetComponent<Renderer>().sharedMaterial = Visual.VisualFactory.Surface("Grill");
+                c.transform.Find("ItemAnchor").localPosition = new Vector3(0f, 0.63f, 0.02f);
+                StationLabel(c, "GRIDDLE");
                 StoveCounter stove = c.AddComponent<StoveCounter>();
                 list.Add(stove);
             }
@@ -311,8 +310,8 @@ namespace KitchenChaos.Core
             GameObject right = MakeCounter("PrepCounter_1", new Vector3(3.6f, 0.5f, -0.9f), new Color(0.22f, 0.48f, 0.47f));
             left.AddComponent<PrepCounter>();
             right.AddComponent<PrepCounter>();
-            StationLabel(left, "READY / HOLD");
-            StationLabel(right, "READY / HOLD");
+            StationLabel(left, "BUILD");
+            StationLabel(right, "BUILD");
         }
 
         private void ResetKitchen()

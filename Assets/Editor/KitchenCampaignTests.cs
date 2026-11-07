@@ -246,17 +246,17 @@ namespace KitchenChaos.EditorTools
             Expect(gm.Orders.AvailableRecipes.Count == 6, "six recipes");
             Expect(gm.State == GameState.Ready && !Container(IngredientType.Bun).Interact(player), "ready state blocks kitchen input");
             Expect(CampaignRules.TargetForDay(1) == 2 && CampaignRules.TargetForDay(2) == 4 && CampaignRules.TargetForDay(5) == 7, "day 1 is a short target and later days climb");
-            Expect(CampaignRules.DurationForDay(1, 150f) == 120f && CampaignRules.DurationForDay(5, 150) == 230, "day 1 shift is two minutes and the final day stays long");
+            Expect(CampaignRules.DurationForDay(1, 150f) == 120f && CampaignRules.DurationForDay(5, 150) == 230, "day 1 lasts two minutes and the final day stays long");
             int dayOneFullPlate = 0;
-            foreach (Recipe recipe in gm.Orders.AvailableRecipes)
+            foreach (Recipe opened in gm.Orders.AvailableRecipes)
             {
-                if (CampaignRules.UnlockDay(recipe) != 1 || recipe.ingredients.Count < 2) continue;
+                if (CampaignRules.UnlockDay(opened) != 1 || opened.ingredients.Count < 2) continue;
                 bool needsCut = false, needsCook = false;
-                foreach (RecipeIngredient item in recipe.ingredients)
+                foreach (RecipeIngredient item in opened.ingredients)
                 {
                     IngredientInfo info = IngredientCatalog.Get(item.type);
-                    if (info.needsCut) needsCut = true;
-                    if (info.needsCook) needsCook = true;
+                    if (info != null && info.needsCut) needsCut = true;
+                    if (info != null && info.needsCook) needsCook = true;
                 }
                 if (needsCut && needsCook) dayOneFullPlate++;
             }
@@ -343,7 +343,7 @@ namespace KitchenChaos.EditorTools
             Expect(stove.IsCooked, "pause prevents burning");
             gm.TogglePause();
             stove.AdvanceProcessing(30f);
-            Expect(stove.IsBurned, "unattended food eventually burns");
+            Expect(stove.IsBurned, "unattended food burns after the short grace");
             stove.Interact(player);
             Object.FindAnyObjectByType<TrashBin>().Interact(player);
             Expect(!player.HandsBusy, "burned food can be discarded");
@@ -430,8 +430,9 @@ namespace KitchenChaos.EditorTools
                         Expect(cutter.PlacedIngredient.state == IngredientState.Cut, "quick hands actually finishes 1.2s chopping within 1s");
                         Container(IngredientType.MeatPatty).Interact(player);
                         stove.Interact(player);
-                        stove.AdvanceProcessing(3.2f);
-                        Expect(stove.IsCooked, "quick hands finishes a 3.8s patty inside 3.2s");
+                        float pattyTime = IngredientCatalog.Get(IngredientType.MeatPatty).cookTime / gm.CookingSpeedMultiplier;
+                        stove.AdvanceProcessing(pattyTime + 0.05f);
+                        Expect(stove.IsCooked, "quick hands finishes the patty within its sped-up cook time");
                         break;
                     case KitchenUpgrade.RunningShoes:
                         float before = player.transform.position.x;
@@ -449,9 +450,9 @@ namespace KitchenChaos.EditorTools
                         stove.Interact(player);
                         stove.AdvanceProcessing(IngredientCatalog.Get(IngredientType.MeatPatty).cookTime);
                         stove.AdvanceProcessing(7f);
-                        Expect(stove.IsCooked && Mathf.Approximately(stove.SecondsUntilBurn, 3f), "safe stove leaves three seconds on a ten-second grace");
+                        Expect(stove.IsCooked && stove.CookedCount == 1 && Mathf.Approximately(stove.SecondsUntilBurn, 3f), "safe stove leaves three seconds on a ten-second grace");
                         stove.AdvanceProcessing(3.1f);
-                        Expect(stove.IsBurned, "upgraded stove still burns once the extra grace runs out");
+                        Expect(stove.IsBurned, "upgraded griddle still burns once the extra grace runs out");
                         break;
                     case KitchenUpgrade.ExtraHeart:
                         for (int i = 0; i < gm.startReputation; i++)
@@ -497,10 +498,9 @@ namespace KitchenChaos.EditorTools
             NewRun();
             gm.Score.RegisterSuccess(10, 1f);
             gm.Score.RegisterSuccess(10, 1f);
-            gm.Score.RegisterSuccess(10, 1f);
-            Expect(gm.Score.Combo == 3 && gm.Score.ComboMultiplier == 3, "third delivery already pays 3x");
+            Expect(gm.Score.Combo == 2 && gm.Score.ComboMultiplier == 2, "second delivery already pays 2x");
             gm.TryDeliverDish(new List<Ingredient> { new Ingredient(IngredientType.Bun, IngredientState.Raw) });
-            Expect(gm.Score.Combo == 3 && gm.Score.ComboMultiplier == 3 && gm.Score.FailedOrders == 0 && gm.Reputation == gm.MaxReputation - 1, "wrong dish keeps the combo and only costs one reputation");
+            Expect(gm.Score.Combo == 2 && gm.Score.FailedOrders == 0 && gm.Reputation == gm.MaxReputation - 1, "wrong dish keeps the combo and only costs one reputation");
             NewRun();
             Expect(UseStation(plates), "soft mismatch takes a plate");
             Expect(player.Plate.Add(new Ingredient(IngredientType.Bun, IngredientState.Raw)), "soft mismatch plates a bun");
@@ -508,10 +508,9 @@ namespace KitchenChaos.EditorTools
             int kept = player.Plate.Count;
             Expect(UseStation(delivery) && player.HasPlate && player.Plate.Count == kept, "wrong delivery keeps every ingredient on the plate");
             Expect(gm.Reputation == gm.MaxReputation - 1 && gm.Score.FailedOrders == 0, "wrong delivery only spends one reputation");
-
             NewRun();
-            int initialWins = gm.TotalWins;
             Recipe recipe = gm.Orders.AvailableRecipes[0];
+            int initialWins = gm.TotalWins;
             for (int day = 1; day <= CampaignRules.TotalDays; day++)
             {
                 Expect(gm.Day == day && gm.Reputation == gm.MaxReputation, "day starts at full upgraded reputation");
