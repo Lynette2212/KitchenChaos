@@ -215,7 +215,7 @@ namespace KitchenChaos.Core
             Fill(new Rect(48, 44, 36, 4), Orange);
             Text(new Rect(96, 30, 600, 30), "KITCHEN CHAOS  /  五日营业计划", small, Muted);
             Text(new Rect(48, 79, 690, 64), "胡闹厨房 · 深蓝小馆", hero, Cream);
-            Text(new Rect(48, 156, 660, 56), "从第一份香煎料理，到第五天的晚高峰。\n备菜、装盘、准时出餐，经营属于你的五日厨房。", body, Muted);
+            Text(new Rect(48, 156, 660, 56), "第一天就能切、煎、装盘。\n准时出餐，把这间五日厨房经营起来。", body, Muted);
             Panel(new Rect(770, 46, 462, 164), Blue);
             Text(new Rect(794, 61, 410, 26), "本地营业纪录", small, Muted);
             Stat(794, 103, 142, "最高总分", gm.BestScore.ToString());

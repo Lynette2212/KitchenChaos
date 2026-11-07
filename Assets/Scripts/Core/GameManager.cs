@@ -156,9 +156,8 @@ namespace KitchenChaos.Core
                 if (DayCompletedOrders >= DayTarget) CompleteDay();
                 return true;
             }
-            Score.RegisterFailure();
             PlaySound(SfxType.DeliverFail);
-            LoseReputation("配方不匹配，连击已中断");
+            LoseReputation("配方不对，食材还在盘子里", false);
             return false;
         }
 
@@ -171,11 +170,11 @@ namespace KitchenChaos.Core
             LoseReputation("订单超时：" + order.recipe.recipeName);
         }
 
-        private void LoseReputation(string reason)
+        private void LoseReputation(string reason, bool harsh = true)
         {
             Reputation = Mathf.Max(0, Reputation - 1);
             ReputationChanged?.Invoke(Reputation);
-            FeedbackFX.Shake(0.2f, 0.32f);
+            FeedbackFX.Shake(harsh ? 0.2f : 0.08f, harsh ? 0.32f : 0.14f);
             ShowToast(reason + " · 声望 -1", false);
             if (Reputation == 0) FinishRun(false, "声望耗尽，客人们离开了。下次优先处理即将超时的订单。");
         }

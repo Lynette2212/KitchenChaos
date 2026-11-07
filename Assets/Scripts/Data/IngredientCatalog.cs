@@ -59,7 +59,7 @@ namespace KitchenChaos.Data
                 new IngredientInfo { type = IngredientType.Tomato,    displayName = "番茄",   color = new Color(0.90f, 0.25f, 0.20f), needsCut = true,  needsCook = false, cutTime = 1.2f, cookTime = 0f },
                 new IngredientInfo { type = IngredientType.Lettuce,   displayName = "生菜",   color = new Color(0.45f, 0.75f, 0.30f), needsCut = true,  needsCook = false, cutTime = 1.0f, cookTime = 0f },
                 new IngredientInfo { type = IngredientType.Cheese,    displayName = "芝士",   color = new Color(1.00f, 0.82f, 0.30f), needsCut = true,  needsCook = false, cutTime = 1.0f, cookTime = 0f },
-                new IngredientInfo { type = IngredientType.MeatPatty, displayName = "肉饼",   color = new Color(0.62f, 0.33f, 0.22f), needsCut = false, needsCook = true,  cutTime = 0f,   cookTime = 3.0f },
+                new IngredientInfo { type = IngredientType.MeatPatty, displayName = "肉饼",   color = new Color(0.62f, 0.33f, 0.22f), needsCut = false, needsCook = true,  cutTime = 0f,   cookTime = 3.8f },
                 new IngredientInfo { type = IngredientType.Bun,       displayName = "面包胚", color = new Color(0.86f, 0.66f, 0.38f), needsCut = false, needsCook = false, cutTime = 0f,   cookTime = 0f },
                 new IngredientInfo { type = IngredientType.Onion,     displayName = "洋葱",   color = new Color(0.92f, 0.88f, 0.95f), needsCut = true,  needsCook = false, cutTime = 1.4f, cookTime = 0f },
                 new IngredientInfo { type = IngredientType.Mushroom,  displayName = "蘑菇",   color = new Color(0.78f, 0.66f, 0.52f), needsCut = true,  needsCook = true,  cutTime = 1.0f, cookTime = 2.4f }

@@ -142,7 +142,7 @@ namespace KitchenChaos.EditorTools
             stove.Interact(player);
             yield return new WaitForSeconds(0.15f);
             Focus(stove);
-            stove.AdvanceProcessing(3.05f);
+            stove.AdvanceProcessing(IngredientCatalog.Get(IngredientType.MeatPatty).cookTime + 0.05f);
             yield return new WaitForSeconds(0.08f);
             yield return Shot("06-cooked", stove);
             yield return new WaitForSeconds(0.8f);
