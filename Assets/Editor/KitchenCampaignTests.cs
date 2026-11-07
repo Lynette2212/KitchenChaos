@@ -245,8 +245,22 @@ namespace KitchenChaos.EditorTools
             Expect(Object.FindObjectsByType<PrepCounter>().Length == 2, "two prep counters");
             Expect(gm.Orders.AvailableRecipes.Count == 6, "six recipes");
             Expect(gm.State == GameState.Ready && !Container(IngredientType.Bun).Interact(player), "ready state blocks kitchen input");
-            Expect(CampaignRules.TargetForDay(1) == 3 && CampaignRules.TargetForDay(5) == 7, "progressive day targets");
-            Expect(CampaignRules.DurationForDay(5, 150) == 230, "final day gives time for complex dishes");
+            Expect(CampaignRules.TargetForDay(1) == 2 && CampaignRules.TargetForDay(2) == 4 && CampaignRules.TargetForDay(5) == 7, "day 1 is a short target and later days climb");
+            Expect(CampaignRules.DurationForDay(1, 150f) == 120f && CampaignRules.DurationForDay(5, 150) == 230, "day 1 lasts two minutes and the final day stays long");
+            int dayOneFullPlate = 0;
+            foreach (Recipe opened in gm.Orders.AvailableRecipes)
+            {
+                if (CampaignRules.UnlockDay(opened) != 1 || opened.ingredients.Count < 2) continue;
+                bool needsCut = false, needsCook = false;
+                foreach (RecipeIngredient item in opened.ingredients)
+                {
+                    IngredientInfo info = IngredientCatalog.Get(item.type);
+                    if (info != null && info.needsCut) needsCut = true;
+                    if (info != null && info.needsCook) needsCook = true;
+                }
+                if (needsCut && needsCook) dayOneFullPlate++;
+            }
+            Expect(dayOneFullPlate >= 1, "day 1 unlocks a recipe that needs cutting, cooking, and plating");
             Expect(CampaignRules.Stars(0.25f, 0) == 3 && CampaignRules.Stars(0.24f, 0) == 2 && CampaignRules.Stars(0.1f, 1) == 1, "star thresholds and mistake penalty");
             foreach (Recipe recipe in gm.Orders.AvailableRecipes)
             {
@@ -323,13 +337,13 @@ namespace KitchenChaos.EditorTools
             cutter.Interact(player);
             stove.Interact(player);
             stove.AdvanceProcessing(3f);
-            Expect(stove.IsCooked, "mushroom cooks after chopping");
+            Expect(stove.IsCooked && stove.SecondsUntilBurn >= 4f && stove.SecondsUntilBurn <= 6f, "mushroom cooks, then burns within about four to six seconds");
             gm.TogglePause();
             stove.AdvanceProcessing(30f);
             Expect(stove.IsCooked, "pause prevents burning");
             gm.TogglePause();
             stove.AdvanceProcessing(30f);
-            Expect(stove.IsBurned, "unattended food eventually burns");
+            Expect(stove.IsBurned, "unattended food burns after the short grace");
             stove.Interact(player);
             Object.FindAnyObjectByType<TrashBin>().Interact(player);
             Expect(!player.HandsBusy, "burned food can be discarded");
@@ -344,7 +358,7 @@ namespace KitchenChaos.EditorTools
             NewRun();
             gm.Orders.StartSpawning();
             gm.Orders.AdvanceTime(2f);
-            Expect(gm.Orders.ActiveOrders.Count == 1 && CampaignRules.UnlockDay(gm.Orders.ActiveOrders[0].recipe) == 1, "first day spawns tutorial recipe");
+            Expect(gm.Orders.ActiveOrders.Count == 1 && CampaignRules.UnlockDay(gm.Orders.ActiveOrders[0].recipe) == 1 && gm.Orders.ActiveOrders[0].recipe.ingredients.Count > 1, "first day opens on a multi-ingredient recipe");
             Order pending = gm.Orders.ActiveOrders[0];
             gm.TogglePause();
             float patience = pending.timeRemaining;
@@ -416,8 +430,9 @@ namespace KitchenChaos.EditorTools
                         Expect(cutter.PlacedIngredient.state == IngredientState.Cut, "quick hands actually finishes 1.2s chopping within 1s");
                         Container(IngredientType.MeatPatty).Interact(player);
                         stove.Interact(player);
-                        stove.AdvanceProcessing(2.5f);
-                        Expect(stove.IsCooked, "quick hands actually finishes 3s cooking within 2.5s");
+                        float pattyTime = IngredientCatalog.Get(IngredientType.MeatPatty).cookTime / gm.CookingSpeedMultiplier;
+                        stove.AdvanceProcessing(pattyTime + 0.05f);
+                        Expect(stove.IsCooked, "quick hands finishes the patty within its sped-up cook time");
                         break;
                     case KitchenUpgrade.RunningShoes:
                         float before = player.transform.position.x;
@@ -433,11 +448,11 @@ namespace KitchenChaos.EditorTools
                     case KitchenUpgrade.SafeStove:
                         Container(IngredientType.MeatPatty).Interact(player);
                         stove.Interact(player);
-                        stove.AdvanceProcessing(3f);
-                        stove.AdvanceProcessing(10f);
-                        Expect(stove.IsCooked && Mathf.Approximately(stove.SecondsUntilBurn, 3f), "safe stove survives beyond standard eight-second grace");
+                        stove.AdvanceProcessing(IngredientCatalog.Get(IngredientType.MeatPatty).cookTime);
+                        stove.AdvanceProcessing(7f);
+                        Expect(stove.IsCooked && stove.CookedCount == 1 && Mathf.Approximately(stove.SecondsUntilBurn, 3f), "safe stove leaves three seconds on a ten-second grace");
                         stove.AdvanceProcessing(3.1f);
-                        Expect(stove.IsBurned, "upgraded stove still burns after thirteen seconds");
+                        Expect(stove.IsBurned, "upgraded griddle still burns once the extra grace runs out");
                         break;
                     case KitchenUpgrade.ExtraHeart:
                         for (int i = 0; i < gm.startReputation; i++)
@@ -481,14 +496,20 @@ namespace KitchenChaos.EditorTools
         private static void VerifyCampaign()
         {
             NewRun();
-            Recipe recipe = gm.Orders.AvailableRecipes[0];
-            gm.Orders.ActiveOrders.Add(new Order(recipe, 90f));
-            gm.TryDeliverDish(Dish(recipe));
-            Expect(gm.Score.Combo == 1 && gm.Score.ComboMultiplier == 1, "first delivery starts at 1x");
+            gm.Score.RegisterSuccess(10, 1f);
+            gm.Score.RegisterSuccess(10, 1f);
+            Expect(gm.Score.Combo == 2 && gm.Score.ComboMultiplier == 2, "second delivery already pays 2x");
             gm.TryDeliverDish(new List<Ingredient> { new Ingredient(IngredientType.Bun, IngredientState.Raw) });
-            Expect(gm.Score.Combo == 0 && gm.Score.FailedOrders == 1 && gm.Reputation == gm.MaxReputation - 1, "wrong dish consistently breaks combo and costs reputation");
-
+            Expect(gm.Score.Combo == 2 && gm.Score.FailedOrders == 0 && gm.Reputation == gm.MaxReputation - 1, "wrong dish keeps the combo and only costs one reputation");
             NewRun();
+            Expect(UseStation(plates), "soft mismatch takes a plate");
+            Expect(player.Plate.Add(new Ingredient(IngredientType.Bun, IngredientState.Raw)), "soft mismatch plates a bun");
+            Expect(player.Plate.Add(new Ingredient(IngredientType.Cheese, IngredientState.Cut)), "soft mismatch plates cut cheese");
+            int kept = player.Plate.Count;
+            Expect(UseStation(delivery) && player.HasPlate && player.Plate.Count == kept, "wrong delivery keeps every ingredient on the plate");
+            Expect(gm.Reputation == gm.MaxReputation - 1 && gm.Score.FailedOrders == 0, "wrong delivery only spends one reputation");
+            NewRun();
+            Recipe recipe = gm.Orders.AvailableRecipes[0];
             int initialWins = gm.TotalWins;
             for (int day = 1; day <= CampaignRules.TotalDays; day++)
             {
@@ -519,7 +540,7 @@ namespace KitchenChaos.EditorTools
                 Expect(!gm.ChooseUpgrade(0), "upgrade cannot be applied twice");
             }
             Expect(gm.State == GameState.Victory && gm.TotalWins == initialWins + 1 && gm.BestDay == 5, "full campaign wins and records completion");
-            Expect(gm.Score.CompletedOrders == 25 && gm.TotalStars == 15 && gm.BestScore >= gm.Score.Score, "final cumulative statistics");
+            Expect(gm.Score.CompletedOrders == 24 && gm.TotalStars == 15 && gm.BestScore >= gm.Score.Score, "final cumulative statistics");
             gm.StartGame();
             Expect(gm.Day == 1 && gm.CookingSpeedMultiplier == 1f && gm.MoveSpeedMultiplier == 1f && gm.BurnGraceBonus == 0f && gm.OrderPatienceBonus == 0f && gm.TotalStars == 0, "new campaign resets all upgrades and stars");
         }

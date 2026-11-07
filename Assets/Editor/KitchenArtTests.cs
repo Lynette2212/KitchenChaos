@@ -74,57 +74,21 @@ namespace KitchenChaos.EditorTools
             NewRun();
             foreach (KitchenChaos.Gameplay.StoveCounter station in UnityEngine.Object.FindObjectsByType<KitchenChaos.Gameplay.StoveCounter>(FindObjectsSortMode.None))
             {
-                Transform pan = station.transform.Find("frying-pan");
-                Transform surface = pan.Find("CookingSurface");
+                Transform griddle = station.transform.Find("Griddle");
                 Transform anchor = station.transform.Find("ItemAnchor");
-                Expect(surface != null && Vector3.Distance(anchor.position, surface.position) < 0.0001f,
-                    station.name + " uses the pan cooking surface, not the bounds including its handle");
-                Expect(Vector3.ProjectOnPlane(anchor.position - station.transform.Find("Burner").position, Vector3.up).magnitude < 0.0001f,
-                    station.name + " cooking surface is centered on its burner");
-                MeshFilter filter = pan.GetComponentInChildren<MeshFilter>();
-                var probe = new GameObject("PanSurfaceProbe");
-                probe.layer = KitchenChaos.Gameplay.PlayerController.HeldItemLayer;
-                try
-                {
-                    probe.transform.SetPositionAndRotation(filter.transform.position, filter.transform.rotation);
-                    probe.transform.localScale = filter.transform.lossyScale;
-                    MeshCollider collider = probe.AddComponent<MeshCollider>();
-                    collider.sharedMesh = filter.sharedMesh;
-                    Physics.SyncTransforms();
-                    bool hitPan = collider.Raycast(new Ray(anchor.position + Vector3.up, Vector3.down), out RaycastHit hit, 2f);
-                    Expect(hitPan && Vector3.Dot(hit.normal, Vector3.up) > 0.999f,
-                        station.name + " food anchor is directly over the flat interior floor");
-                    Expect(UseStation(Container(IngredientType.MeatPatty)) && UseStation(station), station.name + " accepts the alignment-test patty");
-                    foreach (IngredientState state in new[] { IngredientState.Raw, IngredientState.Cooked, IngredientState.Burned })
-                    {
-                        if (state == IngredientState.Cooked) station.AdvanceProcessing(IngredientCatalog.Get(IngredientType.MeatPatty).cookTime + 0.01f);
-                        if (state == IngredientState.Burned) station.AdvanceProcessing(station.SecondsUntilBurn + 0.01f);
-                        var item = anchor.GetComponentInChildren<KitchenChaos.Gameplay.IngredientItem>();
-                        Renderer[] renderers = item.GetComponentsInChildren<Renderer>();
-                        Bounds bounds = renderers[0].bounds;
-                        foreach (Renderer renderer in renderers) bounds.Encapsulate(renderer.bounds);
-                        Expect(item.State == state && Vector3.ProjectOnPlane(bounds.center - anchor.position, Vector3.up).magnitude < 0.001f,
-                            station.name + " " + state + " patty remains centered over the pan floor");
-                        Expect(hitPan && bounds.min.y >= hit.point.y && bounds.min.y - hit.point.y < 0.005f,
-                            station.name + " " + state + " patty rests on the pan floor without the old height offset");
-                        bool fitsFloor = true;
-                        float radius = Mathf.Max(bounds.extents.x, bounds.extents.z);
-                        for (int edge = 0; edge < 8; edge++)
-                        {
-                            float angle = edge * Mathf.PI / 4f;
-                            Vector3 origin = anchor.position + Vector3.up + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * radius;
-                            fitsFloor &= collider.Raycast(new Ray(origin, Vector3.down), out RaycastHit edgeHit, 2f)
-                                && Mathf.Abs(edgeHit.point.y - hit.point.y) < 0.002f;
-                        }
-                        Expect(fitsFloor, station.name + " " + state + " patty fits inside the flat pan floor in eight directions");
-                    }
-                    station.ResetStation();
-                }
-                finally
-                {
-                    probe.SetActive(false);
-                    UnityEngine.Object.Destroy(probe);
-                }
+                Expect(griddle != null && anchor != null, station.name + " has a flat griddle instead of a pan");
+                Expect(anchor.position.y >= griddle.GetComponent<Renderer>().bounds.max.y - 0.001f, station.name + " food sits on the griddle");
+                Expect(UseStation(Container(IngredientType.MeatPatty)) && UseStation(station), station.name + " accepts a patty");
+                Expect(station.OccupiedCount == 1, station.name + " holds the first patty");
+                Expect(UseStation(Container(IngredientType.MeatPatty)) && UseStation(station) && station.OccupiedCount == 2, station.name + " accepts a second patty beside the first");
+                station.ResetStation();
+                Expect(station.OccupiedCount == 0 && station.PlacedIngredient == null, station.name + " clears every griddle slot");
+                Expect(UseStation(Container(IngredientType.MeatPatty)) && UseStation(station), station.name + " accepts one more patty for the burn check");
+                station.AdvanceProcessing(IngredientCatalog.Get(IngredientType.MeatPatty).cookTime);
+                Expect(station.IsCooked && station.SecondsUntilBurn >= 4f && station.SecondsUntilBurn <= 6f, station.name + " burns a cooked patty within about four to six seconds");
+                station.AdvanceProcessing(station.SecondsUntilBurn + 0.05f);
+                Expect(station.IsBurned, station.name + " actually chars the patty");
+                station.ResetStation();
             }
             NewRun();
         }

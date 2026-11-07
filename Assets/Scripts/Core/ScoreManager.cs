@@ -4,8 +4,8 @@ using UnityEngine;
 namespace KitchenChaos.Core
 {
     /// <summary>
-    /// 计分与连击系统：
-    /// 基础分 × 订单速度系数 × 连击倍率；连续成功提升倍率，失误/超时短暂打断。
+    /// 计分与连击系统：基础分 × 速度系数 × 连击倍率。
+    /// 第二连单就开始加分。配错菜不打断连击，超时才会清零。
     /// </summary>
     public class ScoreManager : MonoBehaviour
     {
@@ -16,7 +16,7 @@ namespace KitchenChaos.Core
         public int BestCombo { get; private set; }
         public int LastGained { get; private set; }
 
-        public int ComboMultiplier => 1 + Mathf.Min(Mathf.Max(0, Combo - 1) / 3, 3);
+        public int ComboMultiplier => 1 + Mathf.Min(Mathf.Max(0, Combo - 1), 3);
 
         public event Action ScoreChanged;
         public event Action<int> OrderScored;

@@ -28,9 +28,9 @@ namespace KitchenChaos.Core
             PlaceProp("knife-block", transform, new Vector3(-2.48f, 1.06f, -2.78f), Vector3.one * 0.8f, 20);
             Detail("Prep rail", transform, new Vector3(-1.05f, 1.88f, -3.24f), new Vector3(2.2f, 0.04f, 0.04f), steel);
             Label("PREP   /   COOK", transform, new Vector3(-1.1f, 2.45f, -3.30f), 180, 0.028f, new Color(0.1f, 0.22f, 0.23f));
-            Detail("Service frame", transform, new Vector3(4.30f, 2.02f, 0.6f), new Vector3(0.10f, 1.26f, 2.0f), oak);
-            Detail("Service chalkboard", transform, new Vector3(4.24f, 2.02f, 0.6f), new Vector3(0.025f, 1.1f, 1.84f), VisualFactory.MakeMaterial(new Color(0.035f, 0.095f, 0.09f), 0.05f));
-            Label("ORDER UP!\n\nHANDMADE DAILY", transform, new Vector3(4.215f, 2.03f, 0.6f), 90, 0.021f, new Color(0.91f, 0.85f, 0.65f));
+            Detail("Service frame", transform, new Vector3(4.30f, 1.7f, -1.7f), new Vector3(0.10f, 1.26f, 2.0f), oak);
+            Detail("Service chalkboard", transform, new Vector3(4.24f, 1.7f, -1.7f), new Vector3(0.025f, 1.1f, 1.84f), VisualFactory.MakeMaterial(new Color(0.035f, 0.095f, 0.09f), 0.05f));
+            Label("ORDER UP!\n\nHANDMADE DAILY", transform, new Vector3(4.215f, 1.71f, -1.7f), 270, 0.021f, new Color(0.91f, 0.85f, 0.65f));
             foreach (float x in new[] { -2.2f, 2.2f })
             {
                 Detail("Ceiling fixture", transform, new Vector3(x, 2.92f, 0), new Vector3(1.4f, 0.1f, 0.24f), teal);
@@ -73,7 +73,12 @@ namespace KitchenChaos.Core
 
         private static GameObject Detail(string name, Transform parent, Vector3 position, Vector3 scale, Material material)
         {
-            GameObject go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            return Part(name, parent, PrimitiveType.Cube, position, scale, material);
+        }
+
+        private static GameObject Part(string name, Transform parent, PrimitiveType type, Vector3 position, Vector3 scale, Material material)
+        {
+            GameObject go = GameObject.CreatePrimitive(type);
             go.name = name;
             go.transform.SetParent(parent, false);
             go.transform.localPosition = position;
@@ -118,6 +123,68 @@ namespace KitchenChaos.Core
             label.alignment = TextAlignment.Center;
             label.color = color;
             go.GetComponent<MeshRenderer>().sharedMaterial = label.font.material;
+        }
+
+        private void BuildServiceWindow(Material wallMat)
+        {
+            CreateWall("Wall_E", new Vector3(4.5f, 1.5f, -1.675f), new Vector3(0.3f, 3f, 3.65f), wallMat);
+            CreateWall("Wall_E_North", new Vector3(4.5f, 1.5f, 2.975f), new Vector3(0.3f, 3f, 1.05f), wallMat);
+            CreateWall("WindowSill", new Vector3(4.5f, 0.6f, 1.3f), new Vector3(0.3f, 1.2f, 2.3f), wallMat);
+            CreateWall("WindowHeader", new Vector3(4.5f, 2.75f, 1.3f), new Vector3(0.3f, 0.5f, 2.3f), wallMat);
+
+            Material oak = VisualFactory.Surface("Oak");
+            Detail("Window frame left", transform, new Vector3(4.32f, 1.85f, 0.2f), new Vector3(0.07f, 1.36f, 0.08f), oak);
+            Detail("Window frame right", transform, new Vector3(4.32f, 1.85f, 2.4f), new Vector3(0.07f, 1.36f, 0.08f), oak);
+            Detail("Window frame top", transform, new Vector3(4.32f, 2.46f, 1.3f), new Vector3(0.07f, 0.08f, 2.28f), oak);
+            Detail("Window frame bottom", transform, new Vector3(4.32f, 1.24f, 1.3f), new Vector3(0.07f, 0.08f, 2.28f), oak);
+            Detail("Window mullion", transform, new Vector3(4.32f, 1.85f, 1.3f), new Vector3(0.05f, 1.2f, 0.05f), oak);
+            Detail("Awning", transform, new Vector3(5.2f, 2.58f, 1.3f), new Vector3(1.15f, 0.06f, 2.55f), VisualFactory.MakeMaterial(new Color(0.72f, 0.18f, 0.16f)));
+            Label("取餐窗口", transform, new Vector3(4.28f, 2.66f, 1.3f), 270, 0.028f, new Color(0.12f, 0.24f, 0.25f));
+
+            Material glass = new Material(VisualFactory.LitShader) { name = "StorefrontGlass" };
+            glass.SetColor("_BaseColor", new Color(0.72f, 0.86f, 0.95f, 0.18f));
+            glass.SetFloat("_Smoothness", 0.92f);
+            glass.SetFloat("_Surface", 1f);
+            glass.SetOverrideTag("RenderType", "Transparent");
+            glass.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            glass.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            glass.SetInt("_ZWrite", 0);
+            glass.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            glass.renderQueue = 3000;
+            GameObject pane = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            pane.name = "ServiceWindow";
+            pane.transform.SetParent(transform, false);
+            pane.transform.position = new Vector3(4.46f, 1.85f, 1.3f);
+            pane.transform.localScale = new Vector3(0.015f, 1.16f, 2.08f);
+            Collider paneCollider = pane.GetComponent<Collider>();
+            paneCollider.enabled = false;
+            Destroy(paneCollider);
+            pane.GetComponent<Renderer>().sharedMaterial = glass;
+
+            Detail("Sidewalk", transform, new Vector3(6.55f, -0.02f, 1.2f), new Vector3(3.6f, 0.08f, 5.4f), VisualFactory.Surface("FloorCream"));
+            Detail("Street", transform, new Vector3(8.55f, -0.05f, 1.2f), new Vector3(1.5f, 0.06f, 6.6f), VisualFactory.MakeMaterial(new Color(0.18f, 0.2f, 0.22f), 0.12f));
+            Detail("Opposite block", transform, new Vector3(9.35f, 1.7f, 1.2f), new Vector3(0.28f, 3.6f, 7.2f), VisualFactory.MakeMaterial(new Color(0.25f, 0.3f, 0.36f), 0.18f));
+            Material streetWindows = LitWindow();
+            for (int i = 0; i < 4; i++)
+                Detail("Street window", transform, new Vector3(9.18f, 1.15f + (i % 2) * 1.15f, -0.8f + i * 1.15f), new Vector3(0.04f, 0.55f, 0.42f), streetWindows);
+
+            GameObject lamp = new GameObject("Storefront light");
+            lamp.transform.SetParent(transform, false);
+            lamp.transform.position = new Vector3(5.35f, 2.45f, 1.3f);
+            Light light = lamp.AddComponent<Light>();
+            light.type = LightType.Point;
+            light.color = new Color(1f, 0.8f, 0.52f);
+            light.intensity = 2.6f;
+            light.range = 8f;
+        }
+
+        private static Material LitWindow()
+        {
+            Material glow = new Material(VisualFactory.LitShader) { name = "StreetWindow" };
+            glow.SetColor("_BaseColor", new Color(1f, 0.78f, 0.42f));
+            glow.EnableKeyword("_EMISSION");
+            glow.SetColor("_EmissionColor", new Color(1f, 0.62f, 0.22f) * 1.6f);
+            return glow;
         }
     }
 }

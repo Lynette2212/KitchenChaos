@@ -142,7 +142,7 @@ namespace KitchenChaos.EditorTools
             stove.Interact(player);
             yield return new WaitForSeconds(0.15f);
             Focus(stove);
-            stove.AdvanceProcessing(3.05f);
+            stove.AdvanceProcessing(IngredientCatalog.Get(IngredientType.MeatPatty).cookTime + 0.05f);
             yield return new WaitForSeconds(0.08f);
             yield return Shot("06-cooked", stove);
             yield return new WaitForSeconds(0.8f);
@@ -270,7 +270,7 @@ namespace KitchenChaos.EditorTools
             stove.Interact(player);
             yield return new WaitForSeconds(0.2f);
             stove.AdvanceProcessing(20f);
-            Debug.Assert(stove.IsBurned && !loop.isPlaying && loop.volume == 0f, "Burning stops the frying loop.");
+            Debug.Assert(stove.IsBurned && !loop.isPlaying && loop.volume == 0f, "Burning stops the griddle loop.");
             gm.ReturnToMenu();
             gm.StartGame();
             gm.Orders.StopSpawning();
