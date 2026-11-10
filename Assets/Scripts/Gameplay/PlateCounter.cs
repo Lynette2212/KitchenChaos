@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using KitchenChaos.Audio;
+using KitchenChaos.Data;
 using KitchenChaos.Visual;
 
 namespace KitchenChaos.Gameplay
@@ -65,15 +66,32 @@ namespace KitchenChaos.Gameplay
                 Play(SfxType.PlatePlace);
                 return true;
             }
-            if (!player.CanTake()) return player.RejectInteraction("请先把食材放到暂存台，再来拿盘子");
             if (plateCount <= 0) return player.RejectInteraction("没有干净盘子了，请归还空盘或取回暂存的盘子");
 
-            plateCount--;
-            BuildVisualStack();
             GameObject go = new GameObject("HeldPlate");
             PlateHandle plate = go.AddComponent<PlateHandle>();
+            Ingredient held = player.HasItem ? player.CarriedItem.Ingredient : null;
+            if (held != null)
+            {
+                string reason = plate.GetAddFailureReason(held);
+                if (reason != null)
+                {
+                    Destroy(go);
+                    return player.RejectInteraction(reason);
+                }
+            }
+
             plate.Init(Vector3.zero);
+            plateCount--;
+            BuildVisualStack();
             player.AttachPlate(plate);
+            if (held != null)
+            {
+                plate.Add(held);
+                player.ClearCarried();
+                if (AudioManager.Instance != null)
+                    AudioManager.Instance.PlayAt(SfxType.Drop, player.transform.position + Vector3.up * 1.2f);
+            }
             FeedbackFX.Punch(plate.transform.Find("PlateBody"), 0.3f, 0.35f);
             FeedbackFX.Puff(StackTop() + Vector3.up * 0.1f, new Color(0.9f, 0.92f, 0.95f), 2, 0.1f, 0.4f, 0.35f);
             Play(SfxType.PlatePickup);
@@ -99,7 +117,7 @@ namespace KitchenChaos.Gameplay
             if (AudioManager.Instance != null) AudioManager.Instance.PlayAt(sound, StackTop());
         }
 
-        public string GetPrompt() => "餐盘台：空手 E 端盘，E 归还空盘（剩 " + plateCount + " 个）";
+        public string GetPrompt() => "餐盘台：E 端盘，手里的食材直接装盘；E 归还空盘（剩 " + plateCount + " 个）";
         public Transform GetTransform() => transform;
     }
 }

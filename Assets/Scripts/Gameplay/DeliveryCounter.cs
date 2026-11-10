@@ -26,9 +26,11 @@ namespace KitchenChaos.Gameplay
             delivering = true;
             try
             {
-                // 结算可能同步触发换日并销毁手持物，之后不再访问玩家和盘子。
-                List<Ingredient> dish = plate.Dump();
+                // 先按盘内食材结算。配错时整盘留下，只有送对了才清空。
+                List<Ingredient> dish = new List<Ingredient>(plate.Contents);
                 bool success = manager.TryDeliverDish(dish);
+                if (success && plate != null) plate.Dump();
+                if (success && player.Chef != null) player.Chef.Celebrate();
                 Celebrate(success, manager);
                 return true;
             }
@@ -57,12 +59,12 @@ namespace KitchenChaos.Gameplay
             else
             {
                 FeedbackFX.Burst(origin, new Color(1f, 0.45f, 0.42f), 14, 2.6f, 0.09f, 7f, 0.55f);
-                FeedbackFX.Popup(origin + Vector3.up * 0.5f, "配方不对", new Color(1f, 0.5f, 0.45f), true);
-                FeedbackFX.Shake(0.2f, 0.3f);
+                FeedbackFX.Popup(origin + Vector3.up * 0.5f, "✕ 出餐错误", new Color(1f, 0.5f, 0.45f), true);
+                FeedbackFX.Shake(0.08f, 0.14f);
             }
         }
 
-        public string GetPrompt() => "按 E 出餐（需手持装好的盘子，出餐后保留空盘）";
+        public string GetPrompt() => "按 E 出餐。没有订单匹配时食材留在盘里：声望 -1、连击中断";
         public Transform GetTransform() => transform;
     }
 }

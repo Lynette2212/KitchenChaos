@@ -76,7 +76,7 @@ namespace KitchenChaos.EditorTools
             var synthesized = new HashSet<AudioClip>();
             UnityEngine.Random.State before = UnityEngine.Random.state;
             var types = (SfxType[])Enum.GetValues(typeof(SfxType));
-            Expect(types.Length == 23, "audio has three imported and twenty synthesized sound types");
+            Expect(types.Length == 24, "audio has three imported and twenty-one synthesized sound types");
             foreach (SfxType type in types)
             {
                 object bank = AudioInvoke(audio, "GetBank", type);
@@ -125,9 +125,9 @@ namespace KitchenChaos.EditorTools
             }
             Expect(UnityEngine.Random.state.Equals(before), "cached banks and variant selection preserve UnityEngine.Random state");
             List<AudioClip> generated = AudioField<List<AudioClip>>(audio, "generatedClips");
-            Expect(imported.Count == 12 && synthesized.Count == 80, "live banks contain twelve imported and eighty synthesized clips");
-            Expect(generated.Count == 80 && new HashSet<AudioClip>(generated).Count == 80
-                && synthesized.SetEquals(generated), "generatedClips owns exactly the eighty synthesized bank clips, without duplicates");
+            Expect(imported.Count == 12 && synthesized.Count == 84, "live banks contain twelve imported and eighty-four synthesized clips");
+            Expect(generated.Count == 84 && new HashSet<AudioClip>(generated).Count == 84
+                && synthesized.SetEquals(generated), "generatedClips owns exactly the eighty-four synthesized bank clips, without duplicates");
             Expect(!generated.Exists(clip => imported.Contains(clip) || clip == audio.MusicSource.clip
                 || !string.IsNullOrEmpty(AssetDatabase.GetAssetPath(clip))), "generatedClips never owns imported Foley or CafeLoop");
         }
@@ -199,7 +199,7 @@ namespace KitchenChaos.EditorTools
                     AudioInvoke(bank, "Next");
                 }
                 Expect(UnityEngine.Random.state.Equals(before), "cold GetBank resource loading, synthesis and Next preserve UnityEngine.Random state");
-                Expect(AudioField<List<AudioClip>>(cold, "generatedClips").Count == 80, "cold initialization owns only eighty synthesized clips");
+                Expect(AudioField<List<AudioClip>>(cold, "generatedClips").Count == 84, "cold initialization owns only eighty-four synthesized clips");
             }
             finally
             {
@@ -450,15 +450,17 @@ namespace KitchenChaos.EditorTools
             stove.ResetStation();
             Expect(stove.PlacedIngredient == null && AudioLoopIdle(audio, first), "ResetStation clears a previously active raw loop");
             other.AdvanceProcessing(cookTime + 0.01f);
-            Expect(other.IsCooked && Mathf.Abs(AudioLoopLevel(audio, second) - 0.62f) < 0.0001f, "second pan independently reaches cooked level");
+            Expect(other.IsCooked && Mathf.Abs(AudioLoopLevel(audio, second) - 0.62f) < 0.0001f, "second griddle independently reaches the stocked level");
             other.AdvanceProcessing(other.SecondsUntilBurn + 0.01f);
-            Expect(other.IsBurned && AudioLoopIdle(audio, second), "burning synchronously clears sizzle level, gain and volume");
+            Expect(other.IsBurned && AudioLoopIdle(audio, second), "burning synchronously clears the griddle sizzle");
+            other.ResetStation();
+            Expect(AudioLoopIdle(audio, second), "clearing the griddle stops its loop");
             gm.TogglePause();
             gm.TogglePause();
             AudioInvoke(stove, "SyncSizzle");
             AudioInvoke(other, "SyncSizzle");
             AudioInvoke(audio, "UpdateLoops", 1f);
-            Expect(AudioLoopIdle(audio, first) && AudioLoopIdle(audio, second), "reset and burned pans stay silent after pause/resume");
+            Expect(AudioLoopIdle(audio, first) && AudioLoopIdle(audio, second), "empty griddles stay silent after pause/resume");
             NewRun();
             Expect(AudioLoopIdle(audio, first) && AudioLoopIdle(audio, second), "new run leaves both retained stove sources with zero contents level");
         }
@@ -467,29 +469,27 @@ namespace KitchenChaos.EditorTools
         {
             NewRun();
             CharacterController controller = player.GetComponent<CharacterController>();
-            BoxCollider obstacle = prep.GetComponent<BoxCollider>();
+            MonoBehaviour blocker = Container(IngredientType.MeatPatty);
+            BoxCollider obstacle = blocker != null ? blocker.GetComponent<BoxCollider>() : null;
             Expect(controller != null && controller.enabled && obstacle != null && obstacle.enabled && !obstacle.isTrigger,
-                "footstep regression uses the real CharacterController and solid prep counter");
+                "footstep regression uses the real CharacterController and solid counter");
             if (controller == null || obstacle == null) return;
-            float side = Mathf.Sign(obstacle.bounds.center.x);
-            Vector3 toward = Vector3.right * side;
-            Vector3 approach = obstacle.bounds.center - toward * (obstacle.bounds.extents.x + controller.radius + 0.65f);
+            Vector3 approach = obstacle.bounds.center - Vector3.forward * (obstacle.bounds.extents.z + controller.radius + 0.65f);
             approach.y = 0.05f;
             MovePlayer(approach);
-            player.ViewCamera.GetComponent<CameraFollow>().SetViewAngles(side > 0f ? 90f : 270f, 0f);
             // Settle vertical CC depenetration before any distance baseline; no keyboard mocks.
             for (int i = 0; i < 8; i++) player.AdvanceMovement(Vector2.zero, false, 0.02f);
             float freeBefore = AudioField<float>(player, "footstepDistance");
             Vector3 freePosition = player.transform.position;
-            player.AdvanceMovement(Vector2.up, false, 0.02f);
+            player.AdvanceMovement(Vector2.right, false, 0.02f);
             float travel = Vector3.ProjectOnPlane(player.transform.position - freePosition, Vector3.up).magnitude;
             Expect(controller.isGrounded && travel > 0.02f
                 && Mathf.Abs(AudioField<float>(player, "footstepDistance") - freeBefore - travel) < 0.002f,
                 "positive control: grounded free walking accumulates actual horizontal displacement");
             for (int i = 0; i < 32; i++) player.AdvanceMovement(Vector2.up, false, 0.02f);
             RaycastHit hit;
-            Expect(controller.isGrounded && (controller.collisionFlags & CollisionFlags.Sides) != 0
-                && obstacle.Raycast(new Ray(controller.bounds.center, toward), out hit, controller.radius + controller.skinWidth + 0.15f),
+            bool rayHit = obstacle.Raycast(new Ray(controller.bounds.center, Vector3.forward), out hit, 1.2f);
+            Expect(controller.isGrounded && (controller.collisionFlags & CollisionFlags.Sides) != 0 && rayHit,
                 "player is stably grounded against the actual counter, not merely stationary in empty space");
             float blockedBefore = AudioField<float>(player, "footstepDistance");
             bool distanceUnchanged = true, physicallyBlocked = true;

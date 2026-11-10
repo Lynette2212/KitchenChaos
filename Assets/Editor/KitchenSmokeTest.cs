@@ -69,10 +69,13 @@ namespace KitchenChaos.EditorTools
                 delivery = UnityEngine.Object.FindAnyObjectByType<DeliveryCounter>();
                 VerifySceneAndRules();
                 VerifyArtAssets();
-                VerifyFirstPerson();
+                VerifyTopDown();
+                VerifyPlatePickup();
+                VerifyMistakeFeedback();
                 VerifyEveryRecipe();
                 VerifyProcessingAndPause();
                 VerifyCampaign();
+                VerifyUrgencyAndErrors();
                 VerifyUpgradeEffects();
                 VerifyFeedback();
                 VerifyAudio();
@@ -99,9 +102,16 @@ namespace KitchenChaos.EditorTools
             Application.logMessageReceived -= CaptureError;
             string result = "KITCHEN CAMPAIGN: " + checks + " checks, " + failures.Count + " failures\n";
             result += failures.Count == 0 ? "ALL PASS" : string.Join("\n", failures);
-            Directory.CreateDirectory("Logs");
-            File.WriteAllText("Logs/campaign-smoke.txt", result);
             Debug.Log(result);
+            try
+            {
+                Directory.CreateDirectory("Logs");
+                File.WriteAllText("Logs/campaign-smoke.txt", result);
+            }
+            catch (IOException exception)
+            {
+                Debug.LogWarning("Campaign result file is locked; the result stays in the batch log. " + exception.Message);
+            }
             EditorApplication.Exit(failures.Count == 0 ? 0 : 1);
         }
 
@@ -109,6 +119,9 @@ namespace KitchenChaos.EditorTools
         {
             if (!Application.isBatchMode) throw new InvalidOperationException("Use a separate batch-mode Editor.");
             Directory.CreateDirectory("Builds/Playtest");
+            PlayerSettings.fullScreenMode = FullScreenMode.FullScreenWindow;
+            PlayerSettings.defaultIsNativeResolution = true;
+            PlayerSettings.resizableWindow = true;
             BuildReport report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
             {
                 scenes = new[] { "Assets/Scenes/KitchenChaos.unity" },

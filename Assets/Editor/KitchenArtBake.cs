@@ -17,13 +17,14 @@ namespace KitchenChaos.EditorTools
             Directory.CreateDirectory(ArtRoot + "/Food");
             Directory.CreateDirectory(ArtRoot + "/Props");
             AssetDatabase.Refresh();
-            BakeSurface("FloorCream", new Color(0.76f, 0.73f, 0.63f), 0.32f, 0f, Floor);
-            BakeSurface("FloorTeal", new Color(0.19f, 0.34f, 0.33f), 0.32f, 0f, Floor);
-            BakeSurface("WallTiles", new Color(0.80f, 0.87f, 0.79f), 0.55f, 0f, Tiles);
-            BakeSurface("Oak", new Color(0.57f, 0.32f, 0.15f), 0.28f, 0f, Wood);
-            BakeSurface("Terrazzo", new Color(0.83f, 0.80f, 0.70f), 0.45f, 0f, Terrazzo);
-            BakeSurface("Steel", new Color(0.45f, 0.50f, 0.49f), 0.62f, 0.65f, Steel);
-            BakeSurface("Cabinet", new Color(0.13f, 0.28f, 0.30f), 0.30f, 0f, Paint);
+            BakeSurface("FloorCream", new Color(0.92f, 0.88f, 0.76f), 0.32f, 0f, Floor);
+            BakeSurface("FloorTeal", new Color(0.43f, 0.61f, 0.55f), 0.32f, 0f, Floor);
+            BakeSurface("WallTiles", new Color(0.88f, 0.92f, 0.84f), 0.55f, 0f, Tiles);
+            BakeSurface("Oak", new Color(0.67f, 0.45f, 0.27f), 0.28f, 0f, Wood);
+            BakeSurface("Terrazzo", new Color(0.90f, 0.87f, 0.78f), 0.45f, 0f, Terrazzo);
+            BakeSurface("Deck", new Color(0.83f, 0.73f, 0.58f), 0.16f, 0f, Wood);
+            BakeSurface("Steel", new Color(0.52f, 0.57f, 0.55f), 0.62f, 0.65f, Steel);
+            BakeSurface("Cabinet", new Color(0.30f, 0.48f, 0.44f), 0.30f, 0f, Paint);
             BakeSurface("Grill", new Color(0.09f, 0.095f, 0.085f), 0.38f, 0.6f, Steel);
             BakeSurface("Ceramic", new Color(0.92f, 0.91f, 0.84f), 0.66f, 0f, Paint);
             BakeSurface("PattyRaw", new Color(0.57f, 0.22f, 0.20f), 0.25f, 0f, Meat);
@@ -41,7 +42,7 @@ namespace KitchenChaos.EditorTools
         private static Color Floor(float u, float v, Color color)
         {
             float edge = Mathf.Min(Mathf.Min(u, 1f - u), Mathf.Min(v, 1f - v));
-            if (edge < 0.009f) return new Color(0.33f, 0.36f, 0.33f);
+            if (edge < 0.009f) return new Color(0.58f, 0.63f, 0.55f);
             float variation = (Grain(u, v, 100f) - 0.5f) * 0.065f;
             float bevel = Mathf.Clamp01((edge - 0.009f) * 140f);
             return color * (0.88f + bevel * 0.12f) + new Color(variation, variation, variation);

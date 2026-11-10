@@ -19,11 +19,14 @@ namespace KitchenChaos.Core
         public event Action OrdersChanged;
         public event Action<Order> OrderExpired;
         public event Action<Order> OrderDelivered;
+        public event Action<Order> OrderSpawned;
+        public event Action<Order> OrderCritical;
 
         private readonly List<Recipe> unlockedRecipes = new List<Recipe>();
         private float spawnTimer;
         private float patienceBonus;
         private int day = 1;
+        private int spawnedToday;
         private Recipe lastRecipe;
 
         public void Initialize(List<Recipe> recipes)
@@ -46,6 +49,7 @@ namespace KitchenChaos.Core
                 if (CampaignRules.UnlockDay(recipe) <= day) unlockedRecipes.Add(recipe);
             unlockedRecipes.Sort((a, b) => a.ingredients.Count.CompareTo(b.ingredients.Count));
             lastRecipe = null;
+            spawnedToday = 0;
         }
 
         public void StartSpawning()
@@ -64,7 +68,11 @@ namespace KitchenChaos.Core
             for (int i = ActiveOrders.Count - 1; i >= 0; i--)
             {
                 Order order = ActiveOrders[i];
-                if (!order.Tick(deltaTime)) continue;
+                if (!order.Tick(deltaTime))
+                {
+                    CheckCritical(order);
+                    continue;
+                }
                 ActiveOrders.RemoveAt(i);
                 OrderExpired?.Invoke(order);
                 OrdersChanged?.Invoke();
@@ -77,6 +85,19 @@ namespace KitchenChaos.Core
             spawnTimer = UnityEngine.Random.Range(minSpawnInterval, maxSpawnInterval);
         }
 
+        private void CheckCritical(Order order)
+        {
+            if (order.warned || order.urgency != OrderUrgency.Critical || order.TimeRatio > 0.22f) return;
+            order.warned = true;
+            OrderCritical?.Invoke(order);
+        }
+
+        /// <summary>菜单按剩余时间自动排队，越急的订单越靠上（交付时也优先匹配最急的一张）。</summary>
+        public void SortByRemaining()
+        {
+            ActiveOrders.Sort((a, b) => a.timeRemaining.CompareTo(b.timeRemaining));
+        }
+
         private void SpawnOrder()
         {
             int index = UnityEngine.Random.Range(0, unlockedRecipes.Count);
@@ -85,8 +106,23 @@ namespace KitchenChaos.Core
                 index = (index + 1) % unlockedRecipes.Count;
             Recipe recipe = unlockedRecipes[index];
             lastRecipe = recipe;
-            ActiveOrders.Add(new Order(recipe, CampaignRules.OrderTimeLimit(recipe, day, patienceBonus)));
+            OrderUrgency urgency = spawnedToday == 0
+                ? (day >= 3 ? OrderUrgency.Critical : OrderUrgency.Express)
+                : RollUrgency();
+            spawnedToday++;
+            Order order = new Order(recipe, CampaignRules.OrderTimeLimit(recipe, day, patienceBonus, urgency), urgency);
+            ActiveOrders.Add(order);
+            SortByRemaining();
             OrdersChanged?.Invoke();
+            OrderSpawned?.Invoke(order);
+        }
+
+        private OrderUrgency RollUrgency()
+        {
+            int roll = UnityEngine.Random.Range(0, 100);
+            if (day <= 2) return roll < 18 ? OrderUrgency.Express : OrderUrgency.Normal;
+            if (day <= 4) return roll < 12 ? OrderUrgency.Critical : roll < 48 ? OrderUrgency.Express : OrderUrgency.Normal;
+            return roll < 24 ? OrderUrgency.Critical : roll < 66 ? OrderUrgency.Express : OrderUrgency.Normal;
         }
 
         public DeliveryResult TryDeliver(List<Ingredient> dish)
@@ -102,7 +138,12 @@ namespace KitchenChaos.Core
             OrderDelivered?.Invoke(best);
             OrdersChanged?.Invoke();
             if (ActiveOrders.Count == 0) spawnTimer = Mathf.Min(spawnTimer, 2f);
-            return new DeliveryResult { order = best, baseScore = best.recipe.score, speedBonus = best.SpeedBonus };
+            return new DeliveryResult
+            {
+                order = best,
+                baseScore = best.recipe.score,
+                speedBonus = best.SpeedBonus * best.UrgencyScoreMultiplier
+            };
         }
 
         public void ClearOrders()

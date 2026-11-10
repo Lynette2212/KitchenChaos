@@ -1,10 +1,10 @@
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.Rendering.Universal;
 using KitchenChaos.Audio;
 using KitchenChaos.Core;
 using KitchenChaos.Data;
 using KitchenChaos.Gameplay;
+using KitchenChaos.Visual;
 
 namespace KitchenChaos.Core
 {
@@ -19,6 +19,7 @@ namespace KitchenChaos.Core
         [Header("关卡参数")]
         public int stoveCount = 2;
         public int cuttingCount = 2;
+        public int prepCount = 4;
         public float roundDuration = 150f;
         public int startReputation = 3;
 
@@ -75,59 +76,42 @@ namespace KitchenChaos.Core
                 }
             }
 
-            Material wallMat = Visual.VisualFactory.Surface("WallTiles", new Vector2(4f, 1.5f));
-            Material sideWallMat = Visual.VisualFactory.Surface("WallTiles", new Vector2(3f, 1.5f));
-            CreateWall("Wall_N", new Vector3(0f, 1.5f, 3.5f), new Vector3(9f, 3f, 0.3f), wallMat);
-            CreateWall("Wall_S", new Vector3(0f, 1.5f, -3.5f), new Vector3(9f, 3f, 0.3f), wallMat);
-            CreateWall("Wall_W", new Vector3(-4.5f, 1.5f, 0f), new Vector3(0.3f, 3f, 7f), sideWallMat);
-            CreateWall("Wall_E", new Vector3(4.5f, 1.5f, 0f), new Vector3(0.3f, 3f, 7f), sideWallMat);
-            GameObject ceiling = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            ceiling.name = "Ceiling";
-            ceiling.transform.SetParent(transform, false);
-            ceiling.transform.position = new Vector3(0f, 3.05f, 0f);
-            ceiling.transform.localScale = new Vector3(9f, 0.1f, 7f);
-            ceiling.GetComponent<Renderer>().sharedMaterial = Visual.VisualFactory.MakeMaterial(new Color(0.82f, 0.85f, 0.8f), 0.1f);
-            ceiling.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            Material plinth = Visual.VisualFactory.Surface("Oak", new Vector2(6f, 5f));
+            Detail("Kitchen plinth", transform, new Vector3(0f, -0.16f, 0f), new Vector3(9.4f, 0.22f, 7.4f), plinth);
+            Material deck = Visual.VisualFactory.Surface("Deck", new Vector2(9f, 7f));
+            Detail("Terrace", transform, new Vector3(0.6f, -0.25f, 0.2f), new Vector3(16f, 0.12f, 14f), deck);
+            BuildOpenBoundary();
 
-            // 灯光
+            // 灯光：开放露台要更亮、阴影更软
             GameObject lightGo = new GameObject("Key Light");
             lightGo.transform.SetParent(transform, false);
             lightGo.transform.rotation = Quaternion.Euler(55f, -35f, 0f);
             Light key = lightGo.AddComponent<Light>();
             key.type = LightType.Directional;
-            key.intensity = 0.85f;
-            key.color = new Color(1f, 0.93f, 0.80f);
+            key.intensity = 1.05f;
+            key.color = new Color(1f, 0.95f, 0.85f);
             key.shadows = LightShadows.Soft;
             RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-            RenderSettings.ambientLight = new Color(0.58f, 0.65f, 0.68f);
-            BuildDecor();
+            RenderSettings.ambientLight = new Color(0.70f, 0.74f, 0.70f);
+            BuildOpenKitchen();
+            var customerWindow = new GameObject("CustomerWindow");
+            customerWindow.transform.SetParent(transform, false);
+            customerWindow.AddComponent<Visual.CustomerWindow>();
 
             GameObject camGo = new GameObject("Main Camera");
             camGo.tag = "MainCamera";
             camGo.transform.SetParent(transform, false);
             Camera cam = camGo.AddComponent<Camera>();
-            cam.orthographic = false;
-            cam.fieldOfView = 70f;
-            cam.nearClipPlane = 0.03f;
+            cam.orthographic = true;
+            cam.orthographicSize = 4.7f;
+            cam.nearClipPlane = 0.1f;
             cam.farClipPlane = 40f;
             cam.rect = new Rect(0f, 0f, 1f, 1f);
-            cam.cullingMask = ~(1 << PlayerController.HeldItemLayer);
+            cam.cullingMask = -1;
             cam.clearFlags = CameraClearFlags.SolidColor;
-            cam.backgroundColor = new Color(0.055f, 0.09f, 0.12f);
+            cam.backgroundColor = new Color(0.80f, 0.87f, 0.82f);
             camGo.AddComponent<AudioListener>();
-            camGo.AddComponent<CameraFollow>();
-
-            GameObject heldCameraGo = new GameObject("Held Item Camera");
-            heldCameraGo.transform.SetParent(camGo.transform, false);
-            Camera heldCamera = heldCameraGo.AddComponent<Camera>();
-            heldCamera.fieldOfView = cam.fieldOfView;
-            heldCamera.nearClipPlane = 0.01f;
-            heldCamera.farClipPlane = 3f;
-            heldCamera.cullingMask = 1 << PlayerController.HeldItemLayer;
-            UniversalAdditionalCameraData heldData = heldCamera.GetUniversalAdditionalCameraData();
-            heldData.renderType = CameraRenderType.Overlay;
-            heldData.renderShadows = false;
-            cam.GetUniversalAdditionalCameraData().cameraStack.Add(heldCamera);
+            camGo.AddComponent<TopDownCamera>();
 
             // 音频
             if (AudioManager.Instance == null)
@@ -144,19 +128,25 @@ namespace KitchenChaos.Core
             }
         }
 
-        private void CreateWall(string n, Vector3 pos, Vector3 scale, Material mat)
+        private void BuildOpenBoundary()
         {
-            GameObject wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            wall.name = n;
-            wall.transform.SetParent(transform, false);
-            wall.transform.position = pos;
-            wall.transform.localScale = scale;
-            wall.GetComponent<Renderer>().sharedMaterial = mat;
-            spawned.Add(wall);
+            // 开放式厨房没有墙，只保留隐形边界，避免角色跑出固定取景范围。
+            AddBoundary("Kitchen boundary N", new Vector3(0f, 0.9f, 3.45f), new Vector3(9.2f, 1.8f, 0.1f));
+            AddBoundary("Kitchen boundary S", new Vector3(0f, 0.9f, -3.45f), new Vector3(9.2f, 1.8f, 0.1f));
+            AddBoundary("Kitchen boundary W", new Vector3(-4.45f, 0.9f, 0f), new Vector3(0.1f, 1.8f, 7.2f));
+            AddBoundary("Kitchen boundary E", new Vector3(4.45f, 0.9f, 0f), new Vector3(0.1f, 1.8f, 7.2f));
+        }
+
+        private void AddBoundary(string name, Vector3 position, Vector3 size)
+        {
+            var boundary = new GameObject(name);
+            boundary.transform.SetParent(transform, false);
+            boundary.transform.localPosition = position;
+            BoxCollider box = boundary.AddComponent<BoxCollider>();
+            box.size = size;
         }
 
         // ---------------- 柜台 ----------------
-
         private GameObject MakeCounter(string name, Vector3 pos, Color color)
         {
             GameObject counter = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -193,11 +183,11 @@ namespace KitchenChaos.Core
                 IngredientType.Tomato, IngredientType.Lettuce, IngredientType.Onion, IngredientType.Mushroom
             };
             List<IngredientContainer> list = new List<IngredientContainer>();
-            float spacing = 1.15f;
-            float startX = -((types.Length - 1) * spacing) / 2f;
+            float spacing = 1f;
+            float startX = -3.5f;
             for (int i = 0; i < types.Length; i++)
             {
-                Vector3 pos = new Vector3(startX + i * spacing, 0.5f, 2.6f);
+                Vector3 pos = new Vector3(startX + i * spacing, 0.5f, 2.5f);
                 GameObject c = MakeContainerCounter("Container_" + types[i], pos, types[i]);
                 list.Add(c.GetComponent<IngredientContainer>());
             }
@@ -216,7 +206,6 @@ namespace KitchenChaos.Core
             sample.transform.SetParent(counter.transform, false);
             sample.transform.localPosition = new Vector3(0f, 0.61f, 0f);
             Detail("Ingredient tray", counter.transform, new Vector3(0f, 0.58f, 0f), new Vector3(0.85f, 0.045f, 0.82f), Visual.VisualFactory.Surface("Oak"));
-            StationLabel(counter, type == IngredientType.MeatPatty ? "PATTY" : type.ToString().ToUpperInvariant());
             spawned.Add(sample);
             return counter;
         }
@@ -224,16 +213,15 @@ namespace KitchenChaos.Core
         private List<CuttingCounter> BuildCuttingCounters()
         {
             List<CuttingCounter> list = new List<CuttingCounter>();
-            float spacing = 1.3f;
-            float startX = -1.7f;
+            float spacing = 1f;
+            float startX = -1.5f;
             for (int i = 0; i < cuttingCount; i++)
             {
-                Vector3 pos = new Vector3(startX + i * spacing, 0.5f, -2.4f);
+                Vector3 pos = new Vector3(startX + i * spacing, 0.5f, -2.5f);
                 GameObject c = MakeCounter("CuttingCounter_" + i, pos, new Color(0.65f, 0.42f, 0.20f));
                 GameObject board = PlaceProp("cutting-board", c.transform, new Vector3(0f, 0.565f, 0f), new Vector3(1f, 0.6f, 1f));
                 c.transform.Find("ItemAnchor").position = new Vector3(pos.x, SurfaceTop(board) + 0.004f, pos.z);
                 PlaceProp("cooking-knife", c.transform, new Vector3(0.39f, 0.575f, -0.08f), Vector3.one, 170);
-                StationLabel(c, "PREP / CHOP");
                 CuttingCounter cutter = c.AddComponent<CuttingCounter>();
                 list.Add(cutter);
             }
@@ -243,25 +231,23 @@ namespace KitchenChaos.Core
         private List<StoveCounter> BuildStoves()
         {
             List<StoveCounter> list = new List<StoveCounter>();
-            float spacing = 1.3f;
-            float startX = 1.4f;
+            float spacing = 1f;
+            float startX = 1.5f;
             for (int i = 0; i < stoveCount; i++)
             {
-                Vector3 pos = new Vector3(startX + i * spacing, 0.5f, -2.4f);
+                Vector3 pos = new Vector3(startX + i * spacing, 0.5f, -2.5f);
                 GameObject c = MakeCounter("StoveCounter_" + i, pos, new Color(0.25f, 0.25f, 0.28f));
                 // 灶眼
-                GameObject burner = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-                burner.name = "Burner";
-                Collider bc = burner.GetComponent<Collider>();
-                if (bc != null) { bc.enabled = false; Destroy(bc); }
-                burner.transform.SetParent(c.transform, false);
-                burner.transform.localPosition = new Vector3(0f, 0.56f, 0f);
-                burner.transform.localScale = new Vector3(0.6f, 0.05f, 0.6f);
-                burner.GetComponent<Renderer>().sharedMaterial = Visual.VisualFactory.Surface("Grill");
                 c.transform.Find("CounterTop").GetComponent<Renderer>().sharedMaterial = Visual.VisualFactory.Surface("Steel");
-                GameObject pan = PlaceProp("frying-pan", c.transform, new Vector3(0f, 0.605f, 0f), new Vector3(1.65f, 0.65f, 1.65f), 135);
-                c.transform.Find("ItemAnchor").position = pan.transform.Find("CookingSurface").position;
-                StationLabel(c, "HOT / GRILL");
+                GameObject griddle = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                griddle.name = "Griddle";
+                Collider griddleCollider = griddle.GetComponent<Collider>();
+                if (griddleCollider != null) { griddleCollider.enabled = false; Destroy(griddleCollider); }
+                griddle.transform.SetParent(c.transform, false);
+                griddle.transform.localPosition = new Vector3(0f, 0.6f, 0.02f);
+                griddle.transform.localScale = new Vector3(0.92f, 0.045f, 0.78f);
+                griddle.GetComponent<Renderer>().sharedMaterial = Visual.VisualFactory.Surface("Grill");
+                c.transform.Find("ItemAnchor").localPosition = new Vector3(0f, 0.63f, 0.02f);
                 StoveCounter stove = c.AddComponent<StoveCounter>();
                 list.Add(stove);
             }
@@ -270,15 +256,13 @@ namespace KitchenChaos.Core
 
         private void BuildPlateCounter()
         {
-            GameObject c = MakeCounter("PlateCounter", new Vector3(-3.6f, 0.5f, 0.6f), new Color(0.4f, 0.45f, 0.5f));
-            StationLabel(c, "CLEAN PLATES");
+            GameObject c = MakeCounter("PlateCounter", new Vector3(3.5f, 0.5f, 0.5f), new Color(0.4f, 0.45f, 0.5f));
             c.AddComponent<PlateCounter>();
         }
 
         private DeliveryCounter BuildDeliveryCounter()
         {
-            GameObject c = MakeCounter("DeliveryCounter", new Vector3(3.6f, 0.5f, 0.6f), new Color(0.65f, 0.51f, 0.23f));
-            StationLabel(c, "SERVICE");
+            GameObject c = MakeCounter("DeliveryCounter", new Vector3(-3.5f, 0.5f, 0.5f), new Color(0.65f, 0.51f, 0.23f));
             Detail("Service mat", c.transform, new Vector3(0f, 0.57f, 0f), new Vector3(0.85f, 0.02f, 0.83f), Visual.VisualFactory.Surface("Oak"));
             // 出餐铃铛标识（金色小球）
             GameObject bell = GameObject.CreatePrimitive(PrimitiveType.Sphere);
@@ -297,7 +281,7 @@ namespace KitchenChaos.Core
             GameObject bin = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             bin.name = "TrashBin";
             bin.transform.SetParent(transform, false);
-            bin.transform.position = new Vector3(-3.6f, 0.35f, -1.8f);
+            bin.transform.position = new Vector3(-3.5f, 0.35f, -1.5f);
             bin.transform.localScale = new Vector3(0.55f, 0.7f, 0.55f);
             bin.GetComponent<Renderer>().sharedMaterial = Visual.VisualFactory.Surface("Steel", new Vector2(3f, 1f));
             bin.AddComponent<TrashBin>();
@@ -307,12 +291,20 @@ namespace KitchenChaos.Core
 
         private void BuildPrepCounters()
         {
-            GameObject left = MakeCounter("PrepCounter_0", new Vector3(-3.6f, 0.5f, -0.7f), new Color(0.22f, 0.48f, 0.47f));
-            GameObject right = MakeCounter("PrepCounter_1", new Vector3(3.6f, 0.5f, -0.9f), new Color(0.22f, 0.48f, 0.47f));
-            left.AddComponent<PrepCounter>();
-            right.AddComponent<PrepCounter>();
-            StationLabel(left, "READY / HOLD");
-            StationLabel(right, "READY / HOLD");
+            // 东西墙外侧各一组，中央两组备菜岛：俯视下就近取放，通道仍可绕行。
+            Vector3[] spots =
+            {
+                new Vector3(-3.5f, 0.5f, -2.5f),
+                new Vector3(3.5f, 0.5f, -2.5f),
+                new Vector3(-3.5f, 0.5f, -0.5f),
+                new Vector3(3.5f, 0.5f, -0.5f)
+            };
+            int count = Mathf.Clamp(prepCount, 0, spots.Length);
+            for (int i = 0; i < count; i++)
+            {
+                GameObject station = MakeCounter("PrepCounter_" + i, spots[i], new Color(0.22f, 0.48f, 0.47f));
+                station.AddComponent<PrepCounter>();
+            }
         }
 
         private void ResetKitchen()
@@ -348,7 +340,8 @@ namespace KitchenChaos.Core
             cc.slopeLimit = 45f;
 
             player = p.AddComponent<PlayerController>();
-            player.InitializeView(Camera.main.GetComponent<CameraFollow>());
+            ChefModel chef = p.AddComponent<ChefModel>();
+            player.Initialize(Camera.main, chef);
         }
 
         // ---------------- 系统 ----------------

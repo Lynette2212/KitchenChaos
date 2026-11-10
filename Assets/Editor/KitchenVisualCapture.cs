@@ -55,8 +55,6 @@ namespace KitchenChaos.EditorTools
     {
         private GameManager gm;
         private PlayerController player;
-        private CameraFollow view;
-        private float mouseSensitivity;
         private CuttingCounter cutter;
         private StoveCounter stove;
         private PlateCounter plates;
@@ -65,6 +63,7 @@ namespace KitchenChaos.EditorTools
 
         private IEnumerator Start()
         {
+            Application.runInBackground = true;
             Application.logMessageReceived += CaptureError;
             Directory.CreateDirectory("Logs/visual");
             while (GameManager.Instance == null || Time.frameCount < 2) yield return null;
@@ -75,23 +74,24 @@ namespace KitchenChaos.EditorTools
             gm.Orders.StopSpawning();
             gm.Orders.ClearOrders();
             player = Object.FindAnyObjectByType<PlayerController>();
-            view = player.ViewCamera.GetComponent<CameraFollow>();
-            mouseSensitivity = view.mouseSensitivity;
-            view.mouseSensitivity = 0f;
             cutter = Object.FindObjectsByType<CuttingCounter>()[0];
             stove = Object.FindObjectsByType<StoveCounter>()[0];
             plates = Object.FindAnyObjectByType<PlateCounter>();
             delivery = Object.FindAnyObjectByType<DeliveryCounter>();
 
             yield return VerifyAudioPlayback();
+            Recipe showcase = gm.Orders.AvailableRecipes.Find(r => r.ingredients.Count >= 3);
+            if (showcase == null) showcase = gm.Orders.AvailableRecipes[0];
+            gm.Orders.ActiveOrders.Add(new Order(showcase, 75f, OrderUrgency.Express) { timeRemaining = 58f });
+            gm.Orders.ActiveOrders.Add(new Order(showcase, 55f, OrderUrgency.Critical) { timeRemaining = 41f });
+            gm.Orders.SortByRemaining();
             yield return new WaitForSeconds(1.2f);
             yield return Shot("01-kitchen");
 
-            view.RefreshPose();
-            Vector3 effectPosition = player.ViewCamera.transform.position + player.ViewCamera.transform.forward * 1.8f;
+            Vector3 effectPosition = player.transform.position + Vector3.up * 1.1f;
             FeedbackFX.Confetti(effectPosition, 40);
             FeedbackFX.Burst(effectPosition, new Color(1f, 0.82f, 0.3f), 24, 3.2f, 0.12f, 5f, 1.1f);
-            FeedbackFX.Popup(effectPosition + player.ViewCamera.transform.up * 0.45f, "色香味俱全！", new Color(1f, 0.86f, 0.4f), true);
+            FeedbackFX.Popup(effectPosition + Vector3.up * 0.45f, "色香味俱全！", new Color(1f, 0.86f, 0.4f), true);
             FeedbackFX.Shake(0.22f, 0.45f);
             yield return new WaitForSeconds(0.1f);
             yield return Shot("02-particle-burst");
@@ -106,6 +106,15 @@ namespace KitchenChaos.EditorTools
             yield return new WaitForSeconds(0.1f);
             yield return Shot("03-pickup", tomato);
             yield return new WaitForSeconds(1.4f);
+
+            player.ClearCarried();
+            player.GiveItem(new Ingredient(IngredientType.Cheese, IngredientState.Raw));
+            Teleport(stove.transform.position + new Vector3(0f, 0f, 1.35f));
+            Focus(stove);
+            stove.Interact(player);
+            yield return new WaitForSeconds(0.12f);
+            yield return Shot("03c-mistake-cheese", stove);
+            player.ClearCarried();
 
             Teleport(cutter.transform.position + new Vector3(0f, 0f, 1.2f));
             Focus(cutter);
@@ -142,7 +151,7 @@ namespace KitchenChaos.EditorTools
             stove.Interact(player);
             yield return new WaitForSeconds(0.15f);
             Focus(stove);
-            stove.AdvanceProcessing(3.05f);
+            stove.AdvanceProcessing(IngredientCatalog.Get(IngredientType.MeatPatty).cookTime + 0.05f);
             yield return new WaitForSeconds(0.08f);
             yield return Shot("06-cooked", stove);
             yield return new WaitForSeconds(0.8f);
@@ -155,9 +164,6 @@ namespace KitchenChaos.EditorTools
             stove.AdvanceProcessing(Mathf.Max(0f, stove.SecondsUntilBurn - 3f));
             yield return new WaitForSeconds(0.08f);
             yield return Shot("07-burn-warning", stove);
-            view.SetViewAngles(player.transform.eulerAngles.y + 180f, 0f);
-            yield return null;
-            yield return Shot("07a-offscreen-stove-warning");
             yield return new WaitForSeconds(1.8f);
             Focus(stove);
             stove.AdvanceProcessing(3.2f);
@@ -172,8 +178,11 @@ namespace KitchenChaos.EditorTools
             plates.Interact(player);
             FillPlate(recipe);
             yield return Shot("08a-held-plate", plates);
+            player.GiveItem(new Ingredient(IngredientType.MeatPatty, IngredientState.Raw));
+            yield return new WaitForSeconds(0.3f);
+            yield return Shot("08b-plate-plus-ingredient", plates);
             gm.Orders.ActiveOrders.Add(new Order(recipe, 90f));
-            Teleport(delivery.transform.position + new Vector3(-1.35f, 0f, 0f));
+            Teleport(delivery.transform.position + new Vector3(1.35f, 0f, 0f));
             Focus(delivery);
             yield return new WaitForSeconds(0.8f);
             Focus(delivery);
@@ -186,13 +195,30 @@ namespace KitchenChaos.EditorTools
             gm.Orders.ActiveOrders.Add(new Order(recipe, 90f));
             Focus(delivery);
             delivery.Interact(player);
-            yield return new WaitForSeconds(0.35f);
+            // 第二次成功出餐可能刚好达成当日目标，收工界面会冻结时间，必须用真实时间等待。
+            yield return new WaitForSecondsRealtime(0.35f);
             yield return Shot("10-combo-banner", delivery);
+            if (gm.State == GameState.DayComplete && gm.UpgradeChoices.Length > 0) gm.ChooseUpgrade(0);
+            yield return new WaitForSecondsRealtime(0.2f);
+
+            gm.Orders.StopSpawning();
+            gm.Orders.ClearOrders();
+            player.ResetForDay();
+            Recipe burgerOrder = gm.Orders.AvailableRecipes.Find(r => r.recipeName == "芝士汉堡");
+            if (burgerOrder != null) gm.Orders.ActiveOrders.Add(new Order(burgerOrder, 90f));
+            Teleport(plates.transform.position - new Vector3(plates.transform.position.x, 0f, plates.transform.position.z).normalized * 1.35f);
+            Focus(plates);
+            plates.Interact(player);
+            if (player.HasPlate) player.Plate.Add(new Ingredient(IngredientType.Bun, IngredientState.Raw));
+            Teleport(delivery.transform.position + new Vector3(1.35f, 0f, 0f));
+            Focus(delivery);
+            delivery.Interact(player);
+            yield return new WaitForSeconds(0.15f);
+            yield return Shot("10a-wrong-delivery", delivery);
 
             player.ResetForDay();
             Teleport(new Vector3(0f, 0.05f, 0.6f));
             yield return new WaitForSeconds(0.5f);
-            view.SetViewAngles(0f, 12f);
             player.AdvanceMovement(Vector2.right, true, 0.05f);
             yield return new WaitForSeconds(0.06f);
             yield return Shot("11-dash");
@@ -208,7 +234,6 @@ namespace KitchenChaos.EditorTools
 
             Debug.Log("VISUAL CAPTURE: done; errors=" + errors);
             yield return new WaitForSeconds(0.4f);
-            view.mouseSensitivity = mouseSensitivity;
             SessionState.SetBool("KitchenChaos.VisualCapture.Running", false);
             EditorApplication.Exit(errors == 0 ? 0 : 1);
         }
@@ -270,7 +295,7 @@ namespace KitchenChaos.EditorTools
             stove.Interact(player);
             yield return new WaitForSeconds(0.2f);
             stove.AdvanceProcessing(20f);
-            Debug.Assert(stove.IsBurned && !loop.isPlaying && loop.volume == 0f, "Burning stops the frying loop.");
+            Debug.Assert(stove.IsBurned && !loop.isPlaying && loop.volume == 0f, "Burning stops the griddle loop.");
             gm.ReturnToMenu();
             gm.StartGame();
             gm.Orders.StopSpawning();
@@ -288,7 +313,6 @@ namespace KitchenChaos.EditorTools
         private void OnDestroy()
         {
             Application.logMessageReceived -= CaptureError;
-            if (view != null) view.mouseSensitivity = mouseSensitivity;
         }
 
         private void FillPlate(Recipe recipe)
@@ -304,18 +328,20 @@ namespace KitchenChaos.EditorTools
             if (controller != null) controller.enabled = false;
             player.transform.position = position;
             if (controller != null) controller.enabled = true;
-            view.RefreshPose();
             Physics.SyncTransforms();
         }
 
         private void Focus(MonoBehaviour station)
         {
-            view.RefreshPose();
-            Vector3 direction = station.transform.position + Vector3.up * 0.45f - player.ViewCamera.transform.position;
-            float yaw = Mathf.Atan2(direction.x, direction.z) * Mathf.Rad2Deg;
-            float pitch = -Mathf.Atan2(direction.y, new Vector2(direction.x, direction.z).magnitude) * Mathf.Rad2Deg;
-            view.SetViewAngles(yaw, pitch);
-            view.RefreshPose();
+            Vector3 position = station.transform.position;
+            Vector3 offset;
+            if (Mathf.Abs(position.z) > 2f) offset = Vector3.back * Mathf.Sign(position.z) * 0.85f;
+            else if (Mathf.Abs(position.x) > 2.5f) offset = Vector3.left * Mathf.Sign(position.x) * 0.85f;
+            else offset = Vector3.back * 0.85f;
+            Teleport(position + offset);
+            Vector3 direction = position - player.transform.position;
+            direction.y = 0f;
+            if (direction.sqrMagnitude > 0.0001f) player.transform.rotation = Quaternion.LookRotation(direction.normalized);
             Physics.SyncTransforms();
             var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
             typeof(PlayerController).GetMethod("FindTarget", flags).Invoke(player, null);

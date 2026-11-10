@@ -11,7 +11,7 @@ namespace KitchenChaos.Audio
         DeliverSuccess = 6, DeliverFail = 7, OrderExpire = 8, ButtonClick = 9,
         GameOver = 10, Dash = 11, Tick = 12, Warning = 13, Combo = 14,
         DayComplete = 15, Victory = 16, Bell = 17, ChopDone = 18,
-        Footstep = 19, PlatePickup = 20, PlatePlace = 21, Trash = 22
+        Footstep = 19, PlatePickup = 20, PlatePlace = 21, Trash = 22, Error = 23
     }
 
     // Bounded transient voices, independently owned stove loops, and one imported music bed.
@@ -356,12 +356,13 @@ namespace KitchenChaos.Audio
             return bank;
         }
 
-        private static bool IsValid(SfxType type) => (int)type >= 0 && type <= SfxType.Trash;
+        private static bool IsValid(SfxType type) => (int)type >= 0 && type <= SfxType.Error;
         private static bool IsOutcome(SfxType type) => type == SfxType.GameOver || type == SfxType.Victory || type == SfxType.DayComplete;
         private static bool IsGlobalCue(SfxType type) => IsOutcome(type) || type == SfxType.DeliverSuccess
             || type == SfxType.DeliverFail || type == SfxType.OrderExpire || type == SfxType.ButtonClick
             || type == SfxType.Tick || type == SfxType.Combo || type == SfxType.Bell;
         private static float MinimumInterval(SfxType type) => type == SfxType.Warning ? 0.5f
+            : type == SfxType.Error ? 0.3f
             : type == SfxType.Footstep ? 0.16f : type == SfxType.Chop ? 0.065f : 0.04f;
         private static float CueGain(SfxType type) => type == SfxType.Footstep ? 0.48f
             : type == SfxType.ButtonClick ? 0.55f : type == SfxType.Combo || type == SfxType.Bell ? 0.65f : 0.85f;

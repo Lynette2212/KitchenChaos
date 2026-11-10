@@ -25,17 +25,16 @@ namespace KitchenChaos.EditorTools
             controller.enabled = false;
             player.transform.position = position;
             controller.enabled = true;
-            player.ViewCamera.GetComponent<CameraFollow>().RefreshPose();
             Physics.SyncTransforms();
         }
 
-        private static void AimAt(Vector3 point)
+        private static void Face(Vector3 point)
         {
-            Vector3 direction = point - player.ViewCamera.transform.position;
-            float yaw = Mathf.Atan2(direction.x, direction.z) * Mathf.Rad2Deg;
-            float pitch = -Mathf.Atan2(direction.y, new Vector2(direction.x, direction.z).magnitude) * Mathf.Rad2Deg;
-            player.ViewCamera.GetComponent<CameraFollow>().SetViewAngles(yaw, pitch);
-            RefreshTarget();
+            Vector3 delta = point - player.transform.position;
+            delta.y = 0f;
+            if (delta.sqrMagnitude < 0.0001f) return;
+            player.transform.rotation = Quaternion.LookRotation(delta.normalized);
+            Physics.SyncTransforms();
         }
 
         private static void RefreshTarget()
@@ -47,22 +46,20 @@ namespace KitchenChaos.EditorTools
 
         private static void FocusStation(MonoBehaviour station)
         {
-            Vector3 offset = Mathf.Abs(station.transform.position.z) > 2f
-                ? Vector3.back * Mathf.Sign(station.transform.position.z) * 1.3f
-                : Vector3.left * Mathf.Sign(station.transform.position.x) * 1.3f;
-            Vector3 position = station.transform.position + offset;
-            position.y = 0.05f;
-            MovePlayer(position);
-            AimAt(station.transform.position + Vector3.up * 0.45f);
+            Vector3 position = station.transform.position;
+            Vector3 offset;
+            if (Mathf.Abs(position.z) > 2f) offset = Vector3.back * Mathf.Sign(position.z) * 0.85f;
+            else if (Mathf.Abs(position.x) > 2.5f) offset = Vector3.left * Mathf.Sign(position.x) * 0.85f;
+            else offset = Vector3.back * 0.85f;
+            Vector3 stand = position + offset;
+            stand.y = 0.05f;
+            MovePlayer(stand);
+            Face(position + Vector3.up * 0.4f);
+            RefreshTarget();
             bool selected = ReferenceEquals(player.CurrentTarget, station);
             if (!selected)
-            {
-                string hits = string.Empty;
-                foreach (RaycastHit hit in Physics.RaycastAll(player.ViewCamera.transform.position, player.ViewCamera.transform.forward, player.interactRange))
-                    hits += hit.collider.name + " at " + hit.distance + "; ";
-                Debug.Log("Ray probe: " + station.name + " eye=" + player.ViewCamera.transform.position + " direction=" + player.ViewCamera.transform.forward + " hits=" + hits);
-            }
-            Expect(selected, "crosshair selects " + station.name);
+                Debug.Log("Target probe: " + station.name + " stand=" + stand + " current=" + (player.CurrentTarget as MonoBehaviour));
+            Expect(selected, "proximity selects " + station.name);
         }
 
         private static bool UseStation(MonoBehaviour station)
@@ -85,133 +82,80 @@ namespace KitchenChaos.EditorTools
             return result;
         }
 
-        private static void VerifyFirstPerson()
+        private static void VerifyTopDown()
         {
             NewRun();
             Camera camera = player.ViewCamera;
-            CameraFollow view = camera.GetComponent<CameraFollow>();
-            Expect(!camera.orthographic && camera.rect == new Rect(0f, 0f, 1f, 1f), "first-person camera uses the full perspective viewport");
-            Expect(view.target == player.transform && view.eyeHeight > 1f, "camera follows the player at eye height");
-            var stack = camera.GetUniversalAdditionalCameraData().cameraStack;
-            int heldMask = 1 << PlayerController.HeldItemLayer;
-            Expect(stack.Count == 1 && stack[0].GetUniversalAdditionalCameraData().renderType == CameraRenderType.Overlay
-                && stack[0].GetUniversalAdditionalCameraData().clearDepth && stack[0].cullingMask == heldMask
-                && (camera.cullingMask & heldMask) == 0, "held camera clears world depth and renders only carried objects");
-            foreach (float yaw in new[] { 0f, 90f, 180f, 270f })
+            TopDownCamera rig = camera != null ? camera.GetComponent<TopDownCamera>() : null;
+            Expect(camera != null && camera.orthographic && camera.orthographicSize >= 3f, "2.5D camera frames the whole kitchen orthographically");
+            Expect(rig != null && camera.transform.position.y > 5f && camera.transform.forward.y < -0.5f,
+                "camera stays fixed high above the kitchen looking down");
+            Expect(camera.cullingMask == -1, "main camera renders the chef and carried items");
+            Expect(player.Chef != null && player.Chef.GetComponentsInChildren<Renderer>().Length >= 1, "imported chef model is visible");
+            bool chefOnWorldLayer = true;
+            foreach (Renderer part in player.Chef.GetComponentsInChildren<Renderer>())
+                if (part.gameObject.layer != 0) chefOnWorldLayer = false;
+            Expect(chefOnWorldLayer, "chef model renders on the world layer");
+            Vector3 cameraPosition = camera.transform.position;
+            Quaternion cameraRotation = camera.transform.rotation;
+
+            foreach (Vector2 input in new[] { Vector2.up, Vector2.down, Vector2.left, Vector2.right, Vector2.one })
             {
-                foreach (float pitch in new[] { -60f, 0f, 60f })
-                {
-                    view.SetViewAngles(yaw, pitch);
-                    Expect(Quaternion.Angle(camera.transform.rotation, Quaternion.Euler(pitch, yaw, 0f)) < 0.01f,
-                        "yaw/pitch pose " + yaw + "/" + pitch);
-                    Expect(Vector3.Distance(camera.transform.position, player.transform.position + Vector3.up * view.eyeHeight) < 0.001f,
-                        "eye stays centered without orbiting at " + yaw + "/" + pitch);
-                }
-                foreach (Vector2 input in new[] { Vector2.up, Vector2.down, Vector2.left, Vector2.right, Vector2.one })
-                {
-                    player.ResetForDay();
-                    view.SetViewAngles(yaw, 60f);
-                    Vector3 start = player.transform.position;
-                    player.AdvanceMovement(input, false, 0.05f);
-                    Vector3 expected = Quaternion.Euler(0f, yaw, 0f) * new Vector3(input.normalized.x, 0f, input.normalized.y) * player.moveSpeed * 0.05f;
-                    Vector3 actual = Vector3.ProjectOnPlane(player.transform.position - start, Vector3.up);
-                    Expect(Vector3.Distance(actual, expected) < 0.002f, "yaw-relative normalized movement " + yaw + "/" + input);
-                    Expect(Quaternion.Angle(camera.transform.rotation, Quaternion.Euler(60f, yaw, 0f)) < 0.01f,
-                        "movement does not turn or tilt the camera " + yaw + "/" + input);
-                }
+                player.ResetForDay();
+                Vector3 start = player.transform.position;
+                player.AdvanceMovement(input, false, 0.3f);
+                Vector3 direction = (Vector3.right * input.x + Vector3.forward * input.y).normalized;
+                Vector3 expected = direction * player.moveSpeed * 0.3f;
+                Vector3 actual = Vector3.ProjectOnPlane(player.transform.position - start, Vector3.up);
+                Expect(Vector3.Distance(actual, expected) < 0.002f, "top-down movement follows screen axes " + input);
+                Expect(Vector3.Dot(player.transform.forward, direction) > 0.999f, "chef turns toward movement " + input);
             }
-            view.SetViewAngles(358f, 0f);
-            player.AdvanceLook(new Vector2(5f, 3f));
-            Expect(Mathf.Abs(Mathf.DeltaAngle(player.transform.eulerAngles.y, 358f + 5f * view.mouseSensitivity)) < 0.01f
-                && Mathf.Approximately(view.Pitch, -3f * view.mouseSensitivity), "mouse look wraps yaw and applies pitch with the correct sign");
-            view.SetViewAngles(0f, 74f);
-            player.AdvanceLook(new Vector2(0f, -100f));
-            Expect(view.Pitch == 75f, "look down clamps before flipping");
-            player.AdvanceLook(new Vector2(0f, 200f));
-            Expect(view.Pitch == -75f, "look up clamps before flipping");
+            Expect(camera.transform.position == cameraPosition && camera.transform.rotation == cameraRotation, "camera never orbits with the player");
 
             player.ResetForDay();
-            view.SetViewAngles(0f, 0f);
-            GameObject target = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            GameObject blocker = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            try
-            {
-                target.name = "RaycastTestCounter";
-                target.transform.localScale = Vector3.one * 0.4f;
-                target.transform.position = camera.transform.position + Vector3.forward * 1.5f;
-                PrepCounter station = target.AddComponent<PrepCounter>();
-                blocker.transform.localScale = Vector3.one * 0.3f;
-                blocker.transform.position = camera.transform.position + Vector3.forward * 0.7f;
-                blocker.SetActive(false);
-                RefreshTarget();
-                Expect(ReferenceEquals(player.CurrentTarget, station), "crosshair selects an in-range station");
-                blocker.SetActive(true);
-                RefreshTarget();
-                Expect(player.CurrentTarget == null, "noninteractable first hit blocks a station behind it");
-                blocker.AddComponent<PrepCounter>();
-                RefreshTarget();
-                Expect(ReferenceEquals(player.CurrentTarget, blocker.GetComponent<PrepCounter>()), "nearest station wins when counters overlap on screen");
-                blocker.layer = PlayerController.HeldItemLayer;
-                RefreshTarget();
-                Expect(ReferenceEquals(player.CurrentTarget, station), "held layer never blocks the interaction ray");
-                blocker.layer = 0;
-                blocker.GetComponent<Collider>().isTrigger = true;
-                RefreshTarget();
-                Expect(ReferenceEquals(player.CurrentTarget, station), "triggers do not block interaction");
-                blocker.SetActive(false);
-                foreach (float offset in new[] { -0.01f, 0.01f })
-                {
-                    target.transform.position = camera.transform.position + Vector3.forward * (player.interactRange + 0.2f + offset);
-                    RefreshTarget();
-                    Expect((player.CurrentTarget != null) == (offset < 0f), "interaction reach tests hit surface at range " + offset);
-                }
-                target.transform.position = camera.transform.position + Vector3.forward * 1.5f;
-                view.SetViewAngles(90f, 0f);
-                RefreshTarget();
-                Expect(player.CurrentTarget == null, "looking into empty space clears the old target");
-                view.SetViewAngles(0f, 0f);
-                station.enabled = false;
-                RefreshTarget();
-                Expect(player.CurrentTarget == null, "disabled station is not interactable");
-            }
-            finally
-            {
-                target.SetActive(false);
-                blocker.SetActive(false);
-                Object.Destroy(target);
-                Object.Destroy(blocker);
-            }
+            Expect(Mathf.Abs(Mathf.DeltaAngle(player.transform.eulerAngles.y, 180f)) < 0.01f, "chef idles facing the camera");
+
+            IngredientContainer bun = Container(IngredientType.Bun);
+            MovePlayer(bun.transform.position + Vector3.back * 0.9f);
+            Face(bun.transform.position);
+            RefreshTarget();
+            Expect(ReferenceEquals(player.CurrentTarget, bun), "nearest station becomes the target");
+            player.transform.rotation = Quaternion.Euler(0f, 180f, 0f);
+            RefreshTarget();
+            Expect(ReferenceEquals(player.CurrentTarget, bun), "turning away still targets a nearby station");
+            Expect(player.CurrentTarget.Interact(player) && player.HasItem, "a nearby station works while facing away");
+            player.ClearCarried();
+            MovePlayer(new Vector3(0f, 0.05f, 0f));
+            Face(bun.transform.position);
+            RefreshTarget();
+            Expect(player.CurrentTarget == null, "station out of reach is not targetable");
 
             player.ResetForDay();
-            player.GiveItem(new Ingredient(IngredientType.Tomato, IngredientState.Raw));
-            Transform held = player.CarriedItem.transform;
-            Vector3 localHeld = camera.transform.InverseTransformPoint(held.position);
-            view.SetViewAngles(137f, -45f);
-            Expect(Vector3.Distance(camera.transform.InverseTransformPoint(held.position), localHeld) < 0.001f, "held ingredient follows camera yaw and pitch");
-            player.CarriedItem.SetState(IngredientState.Cut);
-            Expect(AllOnLayer(held, PlayerController.HeldItemLayer), "rebuilt held ingredient stays on overlay layer");
+            Expect(UseStation(Container(IngredientType.Bun)) && player.HasItem, "top-down interaction takes an ingredient");
+            Vector3 localHeld = player.transform.InverseTransformPoint(player.CarriedItem.transform.position);
+            MovePlayer(new Vector3(1.2f, 0.05f, -0.6f));
+            Expect(Vector3.Distance(player.transform.InverseTransformPoint(player.CarriedItem.transform.position), localHeld) < 0.001f,
+                "carried item follows the chef, not the camera");
+            Expect(localHeld.y > 1f, "carried item floats above the chef's head");
+            Expect(player.CarriedItem.gameObject.layer == PlayerController.HeldItemLayer, "carried item stays on its own render layer");
+
             player.ClearCarried();
             UseStation(plates);
             PlateHandle handle = player.Plate;
             handle.Add(new Ingredient(IngredientType.Bun, IngredientState.Raw));
-            Expect(AllOnLayer(handle.transform, PlayerController.HeldItemLayer), "plate and newly added food use the held layer");
-            localHeld = camera.transform.InverseTransformPoint(handle.transform.position);
-            view.SetViewAngles(223f, 55f);
-            Expect(Vector3.Distance(camera.transform.InverseTransformPoint(handle.transform.position), localHeld) < 0.001f, "filled plate follows both camera axes");
+            Transform plateTransform = handle.transform;
+            Vector3 plateLocal = player.transform.InverseTransformPoint(plateTransform.position);
+            MovePlayer(new Vector3(-1.1f, 0.05f, -0.6f));
+            Expect(Vector3.Distance(player.transform.InverseTransformPoint(plateTransform.position), plateLocal) < 0.001f, "held plate follows the chef");
             UseStation(prep);
-            Expect(!player.HandsBusy && AllOnLayer(handle.transform, 0) && handle.transform.localScale == Vector3.one, "stored plate restores world layer and scale");
-            typeof(KitchenChaos.Visual.FeedbackFX).GetMethod("UpdatePunches", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
-                .Invoke(KitchenChaos.Visual.FeedbackFX.Instance, new object[] { 1f });
-            Expect(handle.transform.localScale == Vector3.one, "finishing pickup feedback does not shrink a newly stored plate");
+            Expect(!player.HandsBusy && AllOnLayer(plateTransform, 0) && plateTransform.localScale == Vector3.one, "stored plate restores world layer and scale");
             UseStation(prep);
-            Expect(player.HasPlate && AllOnLayer(handle.transform, PlayerController.HeldItemLayer), "retrieved plate returns to the held layer");
+            Expect(player.HasPlate, "stored plate can be retrieved");
 
             gm.TogglePause();
             Vector3 pausedPosition = player.transform.position;
-            Quaternion pausedView = camera.transform.rotation;
-            player.AdvanceLook(Vector2.one * 80f);
             player.AdvanceMovement(Vector2.one, true, 1f);
-            Expect(player.transform.position == pausedPosition && camera.transform.rotation == pausedView, "pause rejects camera and movement changes");
+            Expect(player.transform.position == pausedPosition, "pause rejects movement");
             Expect(Cursor.lockState == CursorLockMode.None && Cursor.visible && player.CurrentTarget == null, "pause releases mouse and clears the target");
             var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
             typeof(PlayerController).GetMethod("OnApplicationFocus", flags).Invoke(player, new object[] { false });
@@ -221,14 +165,65 @@ namespace KitchenChaos.EditorTools
             gm.TogglePause();
             Expect((int)typeof(PlayerController).GetField("inputBlockedFrame", flags).GetValue(player) == Time.frameCount, "resume suppresses gameplay input in the transition frame");
             typeof(PlayerController).GetMethod("Update", flags).Invoke(player, null);
-            Expect(player.transform.position == pausedPosition && camera.transform.rotation == pausedView && player.CurrentTarget == null,
-                "resume frame does not apply stale input or restore a stale target");
+            Expect(player.transform.position == pausedPosition && player.CurrentTarget == null, "resume frame ignores stale input");
             var hudOrder = (DefaultExecutionOrder)System.Attribute.GetCustomAttribute(typeof(GameplayHUD), typeof(DefaultExecutionOrder));
             var playerOrder = (DefaultExecutionOrder)System.Attribute.GetCustomAttribute(typeof(PlayerController), typeof(DefaultExecutionOrder));
             Expect(hudOrder.order < playerOrder.order && playerOrder.order < 0, "pause keys run before movement and processing");
             player.ResetForDay();
-            Expect(!player.HandsBusy && player.CurrentTarget == null && view.Pitch == 12f
-                && Mathf.Abs(Mathf.DeltaAngle(player.transform.eulerAngles.y, 0f)) < 0.01f, "day reset clears held items and restores initial view");
+            Expect(!player.HandsBusy && player.CurrentTarget == null && Mathf.Abs(Mathf.DeltaAngle(player.transform.eulerAngles.y, 180f)) < 0.01f,
+                "day reset clears held items and faces the camera");
+        }
+
+        private static void VerifyPlatePickup()
+        {
+            NewRun();
+            Expect(UseStation(Container(IngredientType.MeatPatty)) && player.HasItem, "take a raw patty before the plate");
+            int stock = plates.PlateCount;
+            Expect(!UseStation(plates) && player.HasItem && !player.HasPlate, "a raw patty stops the plate pickup");
+            Expect(plates.PlateCount == stock, "a rejected plate pickup keeps stock");
+            Expect(UseStation(stove) && !player.HasItem && stove.OccupiedCount == 1, "the raw patty goes onto the stove");
+            stove.AdvanceProcessing(IngredientCatalog.Get(IngredientType.MeatPatty).cookTime / gm.CookingSpeedMultiplier + 0.01f);
+            Expect(stove.IsCooked, "the patty cooks before plating");
+            Expect(UseStation(stove) && player.HasItem && stove.OccupiedCount == 0, "the cooked patty is taken by hand");
+            Expect(UseStation(plates) && player.HasPlate && !player.HasItem && player.Plate.Count == 1,
+                "taking a plate auto-plates the cooked patty");
+            Expect(plates.PlateCount == stock - 1, "auto-plating still consumes one plate");
+            Expect(UseStation(Container(IngredientType.Bun)) && player.HasPlate && player.Plate.Count == 2,
+                "an ingredient picked up with a plate goes straight onto it");
+            Expect(UseStation(prep) && !player.HandsBusy && player.Plate == null, "the full plate can still be stored at a prep counter");
+            NewRun();
+        }
+
+        private static void VerifyMistakeFeedback()
+        {
+            NewRun();
+            var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            typeof(PlayerController).GetField("lastRejectSound", flags).SetValue(player, -10f);
+            KitchenChaos.Visual.FeedbackFX.Clear();
+            player.GiveItem(new Ingredient(IngredientType.Cheese, IngredientState.Raw));
+            FocusStation(stove);
+            Expect(!stove.Interact(player) && player.HasItem, "raw cheese is rejected by the griddle");
+            Expect(KitchenChaos.Visual.FeedbackFX.Instance.Popups.Count > 0, "rejected operation shows a mistake popup");
+            Expect(player.Chef != null && player.Chef.IsMistakeActive, "chef visibly reacts to a mistake");
+            player.ClearCarried();
+
+            Expect(IngredientCatalog.Get(IngredientType.MeatPatty).cookTime >= 5.5f, "patty now takes noticeably longer to cook");
+
+            gm.Orders.ClearOrders();
+            Recipe burger = gm.Orders.AvailableRecipes.Find(r => r.recipeName == "芝士汉堡");
+            Expect(burger != null, "cheeseburger recipe exists");
+            if (burger != null)
+            {
+                gm.Orders.ActiveOrders.Add(new Order(burger, 90f));
+                Expect(!gm.TryDeliverDish(new List<Ingredient> { new Ingredient(IngredientType.Bun, IngredientState.Raw) }),
+                    "incomplete cheeseburger is rejected");
+                Expect(gm.LastDeliveryError.Contains(burger.recipeName) && gm.LastDeliveryError.Contains("缺"),
+                    "delivery error names the ticket and what is missing");
+                Expect(gm.Reputation == gm.MaxReputation - 1 && gm.Score.Mistakes == 1,
+                    "failed delivery still costs one reputation and counts one mistake");
+            }
+            gm.Orders.ClearOrders();
+            NewRun();
         }
 
         private static bool AllOnLayer(Transform root, int layer)
@@ -242,11 +237,27 @@ namespace KitchenChaos.EditorTools
         {
             Expect(gm != null && player != null && cutter != null && stove != null && plates != null && prep != null && delivery != null, "all gameplay systems exist");
             Expect(Object.FindObjectsByType<IngredientContainer>().Length == 7, "seven ingredient sources");
-            Expect(Object.FindObjectsByType<PrepCounter>().Length == 2, "two prep counters");
+            Expect(Object.FindObjectsByType<PrepCounter>().Length == 4, "four prep counters");
+            Expect(delivery.transform.position.x < -2f && Mathf.Abs(delivery.transform.position.z - 0.5f) < 0.01f,
+                "delivery counter sits on the customer window side");
             Expect(gm.Orders.AvailableRecipes.Count == 6, "six recipes");
             Expect(gm.State == GameState.Ready && !Container(IngredientType.Bun).Interact(player), "ready state blocks kitchen input");
-            Expect(CampaignRules.TargetForDay(1) == 3 && CampaignRules.TargetForDay(5) == 7, "progressive day targets");
-            Expect(CampaignRules.DurationForDay(5, 150) == 230, "final day gives time for complex dishes");
+            Expect(CampaignRules.TargetForDay(1) == 2 && CampaignRules.TargetForDay(2) == 4 && CampaignRules.TargetForDay(5) == 7, "day 1 is a short target and later days climb");
+            Expect(CampaignRules.DurationForDay(1, 150f) == 120f && CampaignRules.DurationForDay(5, 150) == 230, "day 1 lasts two minutes and the final day stays long");
+            int dayOneFullPlate = 0;
+            foreach (Recipe opened in gm.Orders.AvailableRecipes)
+            {
+                if (CampaignRules.UnlockDay(opened) != 1 || opened.ingredients.Count < 2) continue;
+                bool needsCut = false, needsCook = false;
+                foreach (RecipeIngredient item in opened.ingredients)
+                {
+                    IngredientInfo info = IngredientCatalog.Get(item.type);
+                    if (info != null && info.needsCut) needsCut = true;
+                    if (info != null && info.needsCook) needsCook = true;
+                }
+                if (needsCut && needsCook) dayOneFullPlate++;
+            }
+            Expect(dayOneFullPlate >= 1, "day 1 unlocks a recipe that needs cutting, cooking, and plating");
             Expect(CampaignRules.Stars(0.25f, 0) == 3 && CampaignRules.Stars(0.24f, 0) == 2 && CampaignRules.Stars(0.1f, 1) == 1, "star thresholds and mistake penalty");
             foreach (Recipe recipe in gm.Orders.AvailableRecipes)
             {
@@ -313,23 +324,25 @@ namespace KitchenChaos.EditorTools
             Expect(!cutter.Interact(player) && !plates.Interact(player) && !prep.Interact(player), "paused station interactions rejected");
             gm.TogglePause();
             FocusCutter();
-            player.ViewCamera.GetComponent<CameraFollow>().SetViewAngles(0f, 0f);
+            player.transform.rotation = Quaternion.Euler(0f, 0f, 0f);
+            Physics.SyncTransforms();
             RefreshTarget();
-            cutter.AdvanceProcessing(2f);
-            Expect(cutter.Progress01 == cutProgress, "looking away stops chopping even with the key held");
+            Expect(ReferenceEquals(player.CurrentTarget, cutter), "turning away keeps the nearby cutter as the target");
+            cutter.AdvanceProcessing(0.2f);
+            Expect(cutter.Progress01 > cutProgress, "turning away keeps chopping while still near the cutter");
             FocusCutter();
             cutter.AdvanceProcessing(2f);
-            Expect(cutter.PlacedIngredient.state == IngredientState.Cut && cutter.Progress01 == 1f, "resume continues partial chopping after retargeting");
+            Expect(cutter.PlacedIngredient.state == IngredientState.Cut && cutter.Progress01 == 1f, "chopping completes after retargeting");
             cutter.Interact(player);
             stove.Interact(player);
             stove.AdvanceProcessing(3f);
-            Expect(stove.IsCooked, "mushroom cooks after chopping");
+            Expect(stove.IsCooked && stove.SecondsUntilBurn >= 4f && stove.SecondsUntilBurn <= 6f, "mushroom cooks, then burns within about four to six seconds");
             gm.TogglePause();
             stove.AdvanceProcessing(30f);
             Expect(stove.IsCooked, "pause prevents burning");
             gm.TogglePause();
             stove.AdvanceProcessing(30f);
-            Expect(stove.IsBurned, "unattended food eventually burns");
+            Expect(stove.IsBurned, "unattended food burns after the short grace");
             stove.Interact(player);
             Object.FindAnyObjectByType<TrashBin>().Interact(player);
             Expect(!player.HandsBusy, "burned food can be discarded");
@@ -344,7 +357,7 @@ namespace KitchenChaos.EditorTools
             NewRun();
             gm.Orders.StartSpawning();
             gm.Orders.AdvanceTime(2f);
-            Expect(gm.Orders.ActiveOrders.Count == 1 && CampaignRules.UnlockDay(gm.Orders.ActiveOrders[0].recipe) == 1, "first day spawns tutorial recipe");
+            Expect(gm.Orders.ActiveOrders.Count == 1 && CampaignRules.UnlockDay(gm.Orders.ActiveOrders[0].recipe) == 1 && gm.Orders.ActiveOrders[0].recipe.ingredients.Count > 1, "first day opens on a multi-ingredient recipe");
             Order pending = gm.Orders.ActiveOrders[0];
             gm.TogglePause();
             float patience = pending.timeRemaining;
@@ -416,8 +429,9 @@ namespace KitchenChaos.EditorTools
                         Expect(cutter.PlacedIngredient.state == IngredientState.Cut, "quick hands actually finishes 1.2s chopping within 1s");
                         Container(IngredientType.MeatPatty).Interact(player);
                         stove.Interact(player);
-                        stove.AdvanceProcessing(2.5f);
-                        Expect(stove.IsCooked, "quick hands actually finishes 3s cooking within 2.5s");
+                        float pattyTime = IngredientCatalog.Get(IngredientType.MeatPatty).cookTime / gm.CookingSpeedMultiplier;
+                        stove.AdvanceProcessing(pattyTime + 0.05f);
+                        Expect(stove.IsCooked, "quick hands finishes the patty within its sped-up cook time");
                         break;
                     case KitchenUpgrade.RunningShoes:
                         float before = player.transform.position.x;
@@ -428,16 +442,16 @@ namespace KitchenChaos.EditorTools
                     case KitchenUpgrade.PatientGuests:
                         gm.Orders.AdvanceTime(2f);
                         Order patient = gm.Orders.ActiveOrders[0];
-                        Expect(Mathf.Approximately(patient.timeLimit, CampaignRules.OrderTimeLimit(patient.recipe, gm.Day, 0f) + 15f), "patient guests adds fifteen seconds to spawned tickets");
+                        Expect(Mathf.Approximately(patient.timeLimit, CampaignRules.OrderTimeLimit(patient.recipe, gm.Day, 15f, patient.urgency)), "patient guests adds fifteen seconds to spawned tickets");
                         break;
                     case KitchenUpgrade.SafeStove:
                         Container(IngredientType.MeatPatty).Interact(player);
                         stove.Interact(player);
-                        stove.AdvanceProcessing(3f);
-                        stove.AdvanceProcessing(10f);
-                        Expect(stove.IsCooked && Mathf.Approximately(stove.SecondsUntilBurn, 3f), "safe stove survives beyond standard eight-second grace");
+                        stove.AdvanceProcessing(IngredientCatalog.Get(IngredientType.MeatPatty).cookTime);
+                        stove.AdvanceProcessing(7f);
+                        Expect(stove.IsCooked && stove.CookedCount == 1 && Mathf.Approximately(stove.SecondsUntilBurn, 3f), "safe stove leaves three seconds on a ten-second grace");
                         stove.AdvanceProcessing(3.1f);
-                        Expect(stove.IsBurned, "upgraded stove still burns after thirteen seconds");
+                        Expect(stove.IsBurned, "upgraded griddle still burns once the extra grace runs out");
                         break;
                     case KitchenUpgrade.ExtraHeart:
                         for (int i = 0; i < gm.startReputation; i++)
@@ -481,14 +495,21 @@ namespace KitchenChaos.EditorTools
         private static void VerifyCampaign()
         {
             NewRun();
-            Recipe recipe = gm.Orders.AvailableRecipes[0];
-            gm.Orders.ActiveOrders.Add(new Order(recipe, 90f));
-            gm.TryDeliverDish(Dish(recipe));
-            Expect(gm.Score.Combo == 1 && gm.Score.ComboMultiplier == 1, "first delivery starts at 1x");
+            gm.Score.RegisterSuccess(10, 1f);
+            gm.Score.RegisterSuccess(10, 1f);
+            Expect(gm.Score.Combo == 2 && gm.Score.ComboMultiplier == 2, "second delivery already pays 2x");
             gm.TryDeliverDish(new List<Ingredient> { new Ingredient(IngredientType.Bun, IngredientState.Raw) });
-            Expect(gm.Score.Combo == 0 && gm.Score.FailedOrders == 1 && gm.Reputation == gm.MaxReputation - 1, "wrong dish consistently breaks combo and costs reputation");
-
+            Expect(gm.Score.Combo == 0 && gm.Score.Mistakes == 1 && gm.Score.FailedOrders == 0 && gm.Reputation == gm.MaxReputation - 1,
+                "wrong dish breaks the combo, counts a mistake and costs one reputation");
             NewRun();
+            Expect(UseStation(plates), "soft mismatch takes a plate");
+            Expect(player.Plate.Add(new Ingredient(IngredientType.Bun, IngredientState.Raw)), "soft mismatch plates a bun");
+            Expect(player.Plate.Add(new Ingredient(IngredientType.Cheese, IngredientState.Cut)), "soft mismatch plates cut cheese");
+            int kept = player.Plate.Count;
+            Expect(UseStation(delivery) && player.HasPlate && player.Plate.Count == kept, "wrong delivery keeps every ingredient on the plate");
+            Expect(gm.Reputation == gm.MaxReputation - 1 && gm.Score.Mistakes == 1 && gm.Score.FailedOrders == 0, "wrong delivery spends one reputation and logs one mistake");
+            NewRun();
+            Recipe recipe = gm.Orders.AvailableRecipes[0];
             int initialWins = gm.TotalWins;
             for (int day = 1; day <= CampaignRules.TotalDays; day++)
             {
@@ -519,9 +540,76 @@ namespace KitchenChaos.EditorTools
                 Expect(!gm.ChooseUpgrade(0), "upgrade cannot be applied twice");
             }
             Expect(gm.State == GameState.Victory && gm.TotalWins == initialWins + 1 && gm.BestDay == 5, "full campaign wins and records completion");
-            Expect(gm.Score.CompletedOrders == 25 && gm.TotalStars == 15 && gm.BestScore >= gm.Score.Score, "final cumulative statistics");
+            Expect(gm.Score.CompletedOrders == 24 && gm.TotalStars == 15 && gm.BestScore >= gm.Score.Score, "final cumulative statistics");
             gm.StartGame();
             Expect(gm.Day == 1 && gm.CookingSpeedMultiplier == 1f && gm.MoveSpeedMultiplier == 1f && gm.BurnGraceBonus == 0f && gm.OrderPatienceBonus == 0f && gm.TotalStars == 0, "new campaign resets all upgrades and stars");
+        }
+
+        private static void VerifyUrgencyAndErrors()
+        {
+            NewRun();
+            Recipe single = gm.Orders.AvailableRecipes.Find(r => r.ingredients.Count == 1);
+            Expect(single != null, "urgency test finds a single-ingredient recipe");
+            if (single == null) return;
+
+            float normalLimit = CampaignRules.OrderTimeLimit(single, 1, 0f, OrderUrgency.Normal);
+            float expressLimit = CampaignRules.OrderTimeLimit(single, 1, 0f, OrderUrgency.Express);
+            float criticalLimit = CampaignRules.OrderTimeLimit(single, 1, 0f, OrderUrgency.Critical);
+            Expect(normalLimit > expressLimit && expressLimit > criticalLimit, "express and critical tickets use tighter time limits");
+            Expect(OrderUrgencyInfo.ScoreBonus(OrderUrgency.Express) > 1f
+                && OrderUrgencyInfo.ScoreBonus(OrderUrgency.Critical) > OrderUrgencyInfo.ScoreBonus(OrderUrgency.Express),
+                "urgent tickets pay larger score bonuses");
+
+            Order normal = new Order(single, 80f, OrderUrgency.Normal);
+            Order critical = new Order(single, 30f, OrderUrgency.Critical);
+            gm.Orders.ActiveOrders.Add(normal);
+            gm.Orders.ActiveOrders.Add(critical);
+            gm.Orders.SortByRemaining();
+            Expect(ReferenceEquals(gm.Orders.ActiveOrders[0], critical), "order queue sorts by remaining time");
+            DeliveryResult auto = gm.Orders.TryDeliver(Dish(single));
+            Expect(auto != null && ReferenceEquals(auto.order, critical), "delivery auto-dispatches the most urgent matching ticket");
+            Expect(auto != null && auto.speedBonus > normal.SpeedBonus, "urgent ticket applies its score multiplier");
+            gm.Orders.ClearOrders();
+
+            int warnings = 0;
+            Order warned = null;
+            System.Action<Order> handler = order => { warnings++; warned = order; };
+            gm.Orders.StartSpawning();
+            gm.Orders.OrderCritical += handler;
+            Order lastCall = new Order(single, 100f, OrderUrgency.Critical) { timeRemaining = 21f };
+            gm.Orders.ActiveOrders.Add(lastCall);
+            gm.Orders.AdvanceTime(0.02f);
+            Expect(warnings == 1 && ReferenceEquals(warned, lastCall), "critical ticket warns once when its time is nearly up");
+            gm.Orders.AdvanceTime(0.02f);
+            Expect(warnings == 1, "critical warning never repeats");
+            gm.Orders.OrderCritical -= handler;
+            gm.Orders.StopSpawning();
+            gm.Orders.ClearOrders();
+
+            NewRun();
+            gm.TryDeliverDish(new List<Ingredient> { new Ingredient(IngredientType.Bun, IngredientState.Raw) });
+            Expect(gm.Score.Mistakes == 1 && gm.Score.Combo == 0 && gm.Score.FailedOrders == 0 && gm.Reputation == gm.MaxReputation - 1,
+                "wrong delivery counts a mistake, breaks the combo and costs one reputation");
+
+            NewRun();
+            Expect(Container(IngredientType.MeatPatty).Interact(player) && stove.Interact(player), "status test places a patty");
+            stove.AdvanceProcessing(1f);
+            var views = new List<StoveCounter.SlotStatus>();
+            stove.CollectSlotStatus(views);
+            Expect(views.Count == 1 && views[0].state == IngredientState.Raw && views[0].progress01 > 0f && views[0].progress01 < 1f,
+                "patty status exposes live griddle progress");
+            float cookTime = IngredientCatalog.Get(IngredientType.MeatPatty).cookTime;
+            stove.AdvanceProcessing(cookTime);
+            stove.CollectSlotStatus(views);
+            Expect(views.Count == 1 && views[0].state == IngredientState.Cooked && views[0].progress01 == 1f
+                && Mathf.Approximately(views[0].secondsUntilBurn, 4f), "cooked patty status exposes the burn countdown");
+            Expect(gm.Score.Mistakes == 0, "cooking does not add mistakes");
+            stove.AdvanceProcessing(4.1f);
+            stove.CollectSlotStatus(views);
+            Expect(views.Count == 1 && views[0].state == IngredientState.Burned && views[0].progress01 == 1f,
+                "burned patty status stays visible until it is taken away");
+            Expect(gm.Score.Mistakes == 1, "burned food counts as a kitchen mistake");
+            stove.ResetStation();
         }
     }
 }

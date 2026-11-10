@@ -26,11 +26,13 @@ namespace KitchenChaos.Core
         public int DayTarget => CampaignRules.TargetForDay(Day);
         public int DayCompletedOrders => Score.CompletedOrders - completedAtDayStart;
         public int DayFailedOrders => Score.FailedOrders - failedAtDayStart;
+        public int DayMistakes => Score.Mistakes - mistakesAtDayStart;
         public int DayStars { get; private set; }
         public int TotalStars { get; private set; }
         public int Reputation { get; private set; }
         public int MaxReputation => Mathf.Max(1, startReputation) + extraHearts;
         public string EndReason { get; private set; } = string.Empty;
+        public string LastDeliveryError { get; private set; } = string.Empty;
         public int BestScore { get; private set; }
         public int BestDay { get; private set; }
         public int TotalWins { get; private set; }
@@ -51,6 +53,7 @@ namespace KitchenChaos.Core
         private readonly List<string> upgradeNames = new List<string>();
         private int completedAtDayStart;
         private int failedAtDayStart;
+        private int mistakesAtDayStart;
         private int extraHearts;
 
         private void Awake()
@@ -73,6 +76,8 @@ namespace KitchenChaos.Core
             Orders = orders;
             Score = score;
             Orders.OrderExpired += OnOrderExpired;
+            Orders.OrderSpawned += OnOrderSpawned;
+            Orders.OrderCritical += OnOrderCritical;
             Timer.Expired += OnTimeUp;
         }
 
@@ -100,6 +105,7 @@ namespace KitchenChaos.Core
             EndReason = string.Empty;
             completedAtDayStart = Score.CompletedOrders;
             failedAtDayStart = Score.FailedOrders;
+            mistakesAtDayStart = Score.Mistakes;
             Score.ResetCombo();
             Orders.ConfigureDay(Day, OrderPatienceBonus);
             UpgradeChoices = Array.Empty<KitchenUpgrade>();
@@ -149,6 +155,7 @@ namespace KitchenChaos.Core
             DeliveryResult result = Orders.TryDeliver(dish);
             if (result != null)
             {
+                LastDeliveryError = string.Empty;
                 int gained = Score.RegisterSuccess(Mathf.RoundToInt(result.baseScore * TipMultiplier), result.speedBonus);
                 PlaySound(SfxType.DeliverSuccess);
                 if (Score.Combo >= 3) PlaySound(SfxType.Combo);
@@ -156,10 +163,85 @@ namespace KitchenChaos.Core
                 if (DayCompletedOrders >= DayTarget) CompleteDay();
                 return true;
             }
-            Score.RegisterFailure();
+            LastDeliveryError = ExplainDeliveryFailure(dish);
             PlaySound(SfxType.DeliverFail);
-            LoseReputation("配方不匹配，连击已中断");
+            Score.RegisterMistake();
+            LoseReputation("出餐错误：" + LastDeliveryError, false);
             return false;
+        }
+
+        /// <summary>告诉玩家这盘菜和哪张订单对不上、差在哪里，而不是只说“配方不对”。</summary>
+        private string ExplainDeliveryFailure(List<Ingredient> dish)
+        {
+            if (Orders == null || Orders.ActiveOrders.Count == 0)
+                return "现在没有订单，上一张单可能已经超时";
+            Order closest = null;
+            int bestOverlap = -1;
+            foreach (Order order in Orders.ActiveOrders)
+            {
+                if (order == null || order.recipe == null) continue;
+                int overlap = 0;
+                foreach (RecipeIngredient need in order.recipe.ingredients)
+                    foreach (Ingredient item in dish)
+                        if (item != null && item.type == need.type) { overlap++; break; }
+                if (overlap > bestOverlap) { bestOverlap = overlap; closest = order; }
+            }
+            if (closest == null || closest.recipe == null) return "没有匹配的订单";
+            List<string> problems = new List<string>();
+            foreach (RecipeIngredient need in closest.recipe.ingredients)
+            {
+                Ingredient match = null;
+                foreach (Ingredient item in dish)
+                    if (item != null && item.type == need.type) { match = item; break; }
+                if (match == null)
+                    problems.Add("缺" + (need.requiredState == IngredientState.Raw ? string.Empty : StateLabel(need.requiredState)) + IngredientCatalog.GetName(need.type));
+                else if (match.state != need.requiredState)
+                    problems.Add(IngredientCatalog.GetName(need.type) + "要" + StateLabel(need.requiredState) + "，你的是" + StateLabel(match.state));
+            }
+            foreach (Ingredient item in dish)
+            {
+                if (item == null) continue;
+                bool wanted = false;
+                foreach (RecipeIngredient need in closest.recipe.ingredients)
+                    if (need.type == item.type) { wanted = true; break; }
+                if (!wanted) problems.Add("盘里多了" + IngredientCatalog.GetName(item.type));
+            }
+            if (problems.Count == 0) return "盘里的 " + dish.Count + " 样食材和「" + closest.recipe.recipeName + "」对不上";
+            string detail = problems.Count <= 2 ? string.Join("；", problems) : problems[0] + "；" + problems[1] + "…";
+            return "「" + closest.recipe.recipeName + "」" + detail;
+        }
+
+        private static string StateLabel(IngredientState state)
+        {
+            switch (state)
+            {
+                case IngredientState.Cut: return "切好的";
+                case IngredientState.Cooked: return "煎熟的";
+                case IngredientState.Burned: return "焦糊的";
+                default: return "原料";
+            }
+        }
+
+        private void OnOrderSpawned(Order order)
+        {
+            if (!IsPlaying || order == null || order.urgency != OrderUrgency.Critical) return;
+            PlaySound(SfxType.Warning);
+        }
+
+        private void OnOrderCritical(Order order)
+        {
+            if (!IsPlaying || order == null || order.recipe == null) return;
+            PlaySound(SfxType.Warning);
+            ShowToast("特急订单快超时：" + order.recipe.recipeName + " · 剩余 "
+                + Mathf.CeilToInt(Mathf.Max(0f, order.timeRemaining)) + " 秒", false);
+        }
+
+        /// <summary>煎糊属于操作失误：中断连击并计入当日失误，影响评星。</summary>
+        public void RegisterBurntIngredient(IngredientType type)
+        {
+            if (!IsPlaying) return;
+            Score.RegisterMistake();
+            ShowToast(IngredientCatalog.GetName(type) + "煎糊了，计入本日失误", false);
         }
 
         private void OnOrderExpired(Order order)
@@ -171,11 +253,11 @@ namespace KitchenChaos.Core
             LoseReputation("订单超时：" + order.recipe.recipeName);
         }
 
-        private void LoseReputation(string reason)
+        private void LoseReputation(string reason, bool harsh = true)
         {
             Reputation = Mathf.Max(0, Reputation - 1);
             ReputationChanged?.Invoke(Reputation);
-            FeedbackFX.Shake(0.2f, 0.32f);
+            FeedbackFX.Shake(harsh ? 0.2f : 0.08f, harsh ? 0.32f : 0.14f);
             ShowToast(reason + " · 声望 -1", false);
             if (Reputation == 0) FinishRun(false, "声望耗尽，客人们离开了。下次优先处理即将超时的订单。");
         }
@@ -189,7 +271,7 @@ namespace KitchenChaos.Core
         {
             Orders.StopSpawning();
             Timer.Stop();
-            DayStars = CampaignRules.Stars(Timer.TimeRemaining / Timer.RoundDuration, DayFailedOrders);
+            DayStars = CampaignRules.Stars(Timer.TimeRemaining / Timer.RoundDuration, DayMistakes);
             TotalStars += DayStars;
             BestDay = Mathf.Max(BestDay, Day);
             if (Day == CampaignRules.TotalDays)
@@ -261,7 +343,12 @@ namespace KitchenChaos.Core
 
         private void OnDestroy()
         {
-            if (Orders != null) Orders.OrderExpired -= OnOrderExpired;
+            if (Orders != null)
+            {
+                Orders.OrderExpired -= OnOrderExpired;
+                Orders.OrderSpawned -= OnOrderSpawned;
+                Orders.OrderCritical -= OnOrderCritical;
+            }
             if (Timer != null) Timer.Expired -= OnTimeUp;
             if (Instance == this)
             {

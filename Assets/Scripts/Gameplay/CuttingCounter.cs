@@ -62,6 +62,14 @@ namespace KitchenChaos.Gameplay
             return GivePlaced(player);
         }
 
+        public Ingredient ReleaseForPlate()
+        {
+            if (placed == null || placed.Ingredient == null) return null;
+            Ingredient data = placed.Ingredient.Clone();
+            ClearPlaced();
+            return data;
+        }
+
         private bool GivePlaced(PlayerController player)
         {
             if (!player.GiveItem(placed.Ingredient)) return false;

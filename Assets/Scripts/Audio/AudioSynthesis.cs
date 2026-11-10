@@ -155,6 +155,7 @@ namespace KitchenChaos.Audio
                 case SfxType.DayComplete: notes = new[] { 523.25f, 659.25f, 783.99f, 1046.5f, 1318.51f }; step = 0.11f; tail = 0.65f; break;
                 case SfxType.Victory: notes = new[] { 523.25f, 659.25f, 783.99f, 1046.5f }; step = 0.16f; tail = 1.1f; break;
                 case SfxType.Bell: notes = new[] { 1046.5f }; tail = 0.64f; gain = 0.22f; break;
+                case SfxType.Error: notes = new[] { 196f, 174.61f }; step = 0.07f; tail = 0.14f; gain = 0.16f; break;
                 case SfxType.ChopDone: notes = new[] { 659.25f, 783.99f }; step = 0.055f; tail = 0.24f; gain = 0.15f; break;
                 default: throw new ArgumentOutOfRangeException(nameof(type), type, "No sound model");
             }
