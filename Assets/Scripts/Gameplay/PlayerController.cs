@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using KitchenChaos.Data;
 using KitchenChaos.Core;
 using KitchenChaos.Audio;
@@ -27,8 +28,10 @@ namespace KitchenChaos.Gameplay
         private IInteractable currentTarget;
         private InteractableHighlighter currentHighlight;
         private readonly List<IInteractable> interactables = new List<IInteractable>();
-        private Transform carryAnchor;
-        private Transform plateAnchor;
+        [SerializeField] private Transform carryAnchor;
+        [SerializeField] private Transform plateAnchor;
+        private Vector3 spawnPosition;
+        private Quaternion spawnRotation;
         private GameManager manager;
         private Vector3 moveForward = Vector3.forward;
         private Vector3 moveRight = Vector3.right;
@@ -53,12 +56,31 @@ namespace KitchenChaos.Gameplay
         public Camera ViewCamera { get; private set; }
         public ChefModel Chef { get; private set; }
 
-        private void Awake() => controller = GetComponent<CharacterController>();
+        private InputAction moveAction;
+
+        private void Awake()
+        {
+            spawnPosition = transform.position;
+            spawnRotation = transform.rotation;
+            controller = GetComponent<CharacterController>();
+            moveAction = new InputAction("Move", InputActionType.Value, expectedControlType: "Vector2");
+            moveAction.AddCompositeBinding("2DVector(mode=1)")
+                .With("Up", "<Keyboard>/w")
+                .With("Up", "<Keyboard>/upArrow")
+                .With("Down", "<Keyboard>/s")
+                .With("Down", "<Keyboard>/downArrow")
+                .With("Left", "<Keyboard>/a")
+                .With("Left", "<Keyboard>/leftArrow")
+                .With("Right", "<Keyboard>/d")
+                .With("Right", "<Keyboard>/rightArrow");
+            moveAction.AddBinding("<Gamepad>/leftStick");
+            moveAction.AddBinding("<Joystick>/stick");
+        }
 
         private void OnEnable()
         {
-            manager = GameManager.Instance;
-            if (manager != null) manager.StateChanged += OnGameStateChanged;
+            moveAction.Enable();
+            BindManager();
             ApplyCursorState();
         }
 
@@ -71,6 +93,20 @@ namespace KitchenChaos.Gameplay
                 moveForward = Vector3.ProjectOnPlane(viewCamera.transform.forward, Vector3.up).normalized;
                 moveRight = Vector3.ProjectOnPlane(viewCamera.transform.right, Vector3.up).normalized;
             }
+            BindManager();
+            CacheInteractables();
+        }
+
+        private void BindManager()
+        {
+            if (manager != null) manager.StateChanged -= OnGameStateChanged;
+            manager = GameManager.Instance;
+            if (manager != null) manager.StateChanged += OnGameStateChanged;
+        }
+
+#if UNITY_EDITOR
+        public void BuildSceneAnchors()
+        {
             carryAnchor = new GameObject("HeldItems").transform;
             carryAnchor.SetParent(transform, false);
             carryAnchor.localPosition = CarryAnchorPosition;
@@ -79,9 +115,8 @@ namespace KitchenChaos.Gameplay
             plateAnchor.SetParent(transform, false);
             plateAnchor.localPosition = PlateAnchorPosition;
             plateAnchor.gameObject.layer = HeldItemLayer;
-            CacheInteractables();
-            transform.rotation = Quaternion.Euler(0f, 180f, 0f);
         }
+#endif
 
         private void CacheInteractables()
         {
@@ -128,22 +163,23 @@ namespace KitchenChaos.Gameplay
             if (Cursor.lockState != CursorLockMode.Locked)
             {
                 SetTarget(null);
-                if (Input.GetMouseButtonDown(0)) ApplyCursorState();
+                if (Mouse.current?.leftButton.wasPressedThisFrame == true) ApplyCursorState();
                 return;
             }
 
-            bool dashPressed = Input.GetKeyDown(KeyCode.LeftShift) || Input.GetKeyDown(KeyCode.RightShift)
-                || Input.GetKeyDown(KeyCode.Space);
-            AdvanceMovement(new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical")), dashPressed, Time.deltaTime);
+            Keyboard keyboard = Keyboard.current;
+            bool dashPressed = keyboard != null && (keyboard.leftShiftKey.wasPressedThisFrame
+                || keyboard.rightShiftKey.wasPressedThisFrame || keyboard.spaceKey.wasPressedThisFrame);
+            AdvanceMovement(moveAction.ReadValue<Vector2>(), dashPressed, Time.deltaTime);
             FindTarget();
             if (Chef != null)
                 Chef.SetWorking(currentTarget is CuttingCounter cutter && cutter.IsProcessing);
-            if (Input.GetKeyDown(KeyCode.X))
+            if (keyboard != null && keyboard.xKey.wasPressedThisFrame)
             {
                 if (currentTarget is CuttingCounter cutter) cutter.TakeBack(this);
                 else RejectInteraction("走近切菜台按 X，可取回未切好的原料");
             }
-            else if (Input.GetKeyDown(KeyCode.E)) TryInteract();
+            else if (keyboard != null && keyboard.eKey.wasPressedThisFrame) TryInteract();
         }
 
         public void AdvanceMovement(Vector2 input, bool dashPressed, float dt)
@@ -321,7 +357,7 @@ namespace KitchenChaos.Gameplay
             if (controller == null) controller = GetComponent<CharacterController>();
             bool wasEnabled = controller != null && controller.enabled;
             if (wasEnabled) controller.enabled = false;
-            transform.SetPositionAndRotation(new Vector3(0f, 0.05f, -0.6f), Quaternion.Euler(0f, 180f, 0f));
+            transform.SetPositionAndRotation(spawnPosition, spawnRotation);
             if (wasEnabled) controller.enabled = true;
             if (Chef != null)
             {
@@ -332,10 +368,13 @@ namespace KitchenChaos.Gameplay
 
         private void OnDisable()
         {
+            moveAction?.Disable();
             if (manager != null) manager.StateChanged -= OnGameStateChanged;
             SetTarget(null);
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
         }
+
+        private void OnDestroy() => moveAction?.Dispose();
     }
 }

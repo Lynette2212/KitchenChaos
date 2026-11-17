@@ -8,52 +8,81 @@ using KitchenChaos.Visual;
 
 namespace KitchenChaos.Core
 {
-    /// <summary>
-    /// 程序化搭建整个厨房关卡与全部游戏系统，无需手工摆放场景：
-    /// 房间、灯光、相机、玩家、食材柜 / 切菜台 / 灶台 / 餐盘台 / 出餐台 / 垃圾桶，
-    /// 以及 GameManager / Timer / Orders / Score / UI。
-    /// 挂在空场景唯一根对象上即可，进入 Play 自动建厨房。
-    /// </summary>
+    [DefaultExecutionOrder(-100)]
     public partial class KitchenBuilder : MonoBehaviour
     {
-        [Header("关卡参数")]
+        [Header("首次创建时使用；生成后直接编辑场景对象")]
         public int stoveCount = 2;
         public int cuttingCount = 2;
         public int prepCount = 4;
+        [Header("关卡参数")]
         public float roundDuration = 150f;
         public int startReputation = 3;
-
-        private readonly List<GameObject> spawned = new List<GameObject>();
-        private PlayerController player;
+        [Header("场景引用")]
+        [SerializeField] private PlayerController player;
+        [SerializeField] private Camera sceneCamera;
 
         public PlayerController Player => player;
+        public bool HasSceneLayout => player != null && sceneCamera != null;
 
         private void Start()
         {
-            Build();
+            GameManager gameManager = GetComponent<GameManager>();
+            OrderSystem orders = GetComponent<OrderSystem>();
+            gameManager.roundDuration = roundDuration;
+            gameManager.startReputation = startReputation;
+            gameManager.Initialize(GetComponent<TimerSystem>(), orders, GetComponent<ScoreManager>());
+            List<Recipe> recipes = new List<Recipe>(Resources.LoadAll<Recipe>("Recipes"));
+            if (recipes.Count == 0) recipes = RecipeFactory.CreateDefaultRecipes();
+            orders.Initialize(recipes);
+            player.Initialize(sceneCamera, player.GetComponent<ChefModel>());
+            gameManager.DayStarting += ResetKitchen;
+            foreach (DeliveryCounter delivery in GetComponentsInChildren<DeliveryCounter>()) delivery.Init(gameManager);
+            GetComponent<GameplayHUD>().Init(gameManager, player);
         }
 
-        public void Build()
+#if UNITY_EDITOR
+        private readonly List<GameObject> spawned = new List<GameObject>();
+
+        public void BuildSceneObjects()
         {
+            if (Application.isPlaying) throw new System.InvalidOperationException("Create scene objects outside Play Mode.");
+            if (HasSceneLayout) return;
+            if (transform.childCount != 0) throw new System.InvalidOperationException("The kitchen root already contains objects; automatic creation will not overwrite them.");
             BuildEnvironment();
             BuildSystems();
-
-            List<IngredientContainer> containers = BuildContainers();
-            List<CuttingCounter> cutters = BuildCuttingCounters();
-            List<StoveCounter> stoves = BuildStoves();
+            BuildContainers();
+            BuildCuttingCounters();
+            BuildStoves();
             BuildPlateCounter();
-            DeliveryCounter delivery = BuildDeliveryCounter();
+            BuildDeliveryCounter();
             BuildTrashBin();
             BuildPrepCounters();
-
             BuildPlayer();
+            GroupSceneObjects();
+        }
 
-            GameManager gameManager = GetComponent<GameManager>();
-            gameManager.DayStarting += ResetKitchen;
-            if (delivery != null) delivery.Init(gameManager);
-
-            GameplayHUD hud = GetComponent<GameplayHUD>();
-            if (hud != null && player != null) hud.Init(gameManager, player);
+        private void GroupSceneObjects()
+        {
+            var children = new List<Transform>();
+            foreach (Transform child in transform) children.Add(child);
+            var groups = new Dictionary<string, Transform>();
+            foreach (Transform child in children)
+            {
+                string category = child.GetComponent<Camera>() != null ? "Camera"
+                    : child.GetComponent<Light>() != null ? "Lighting"
+                    : child.GetComponent<IInteractable>() != null ? "Stations"
+                    : child.GetComponent<PlayerController>() != null || child.GetComponent<CustomerWindow>() != null ? "Actors"
+                    : child.GetComponent<AudioManager>() != null || child.GetComponent<FeedbackFX>() != null ? "Systems"
+                    : "Environment";
+                if (!groups.TryGetValue(category, out Transform group))
+                {
+                    group = new GameObject(category).transform;
+                    group.SetParent(transform, false);
+                    groups.Add(category, group);
+                }
+                child.SetParent(group, true);
+            }
         }
 
         // ---------------- 环境 ----------------
@@ -96,7 +125,7 @@ namespace KitchenChaos.Core
             BuildOpenKitchen();
             var customerWindow = new GameObject("CustomerWindow");
             customerWindow.transform.SetParent(transform, false);
-            customerWindow.AddComponent<Visual.CustomerWindow>();
+            customerWindow.AddComponent<Visual.CustomerWindow>().Build();
 
             GameObject camGo = new GameObject("Main Camera");
             camGo.tag = "MainCamera";
@@ -112,6 +141,9 @@ namespace KitchenChaos.Core
             cam.backgroundColor = new Color(0.80f, 0.87f, 0.82f);
             camGo.AddComponent<AudioListener>();
             camGo.AddComponent<TopDownCamera>();
+            Quaternion cameraRotation = Quaternion.Euler(52f, 0f, 0f);
+            camGo.transform.SetPositionAndRotation(new Vector3(0.4f, 0f, 0.2f) - cameraRotation * Vector3.forward * 12f, cameraRotation);
+            sceneCamera = cam;
 
             // 音频
             if (AudioManager.Instance == null)
@@ -242,7 +274,7 @@ namespace KitchenChaos.Core
                 GameObject griddle = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 griddle.name = "Griddle";
                 Collider griddleCollider = griddle.GetComponent<Collider>();
-                if (griddleCollider != null) { griddleCollider.enabled = false; Destroy(griddleCollider); }
+                if (griddleCollider != null) { griddleCollider.enabled = false; DestroyImmediate(griddleCollider); }
                 griddle.transform.SetParent(c.transform, false);
                 griddle.transform.localPosition = new Vector3(0f, 0.6f, 0.02f);
                 griddle.transform.localScale = new Vector3(0.92f, 0.045f, 0.78f);
@@ -257,7 +289,7 @@ namespace KitchenChaos.Core
         private void BuildPlateCounter()
         {
             GameObject c = MakeCounter("PlateCounter", new Vector3(3.5f, 0.5f, 0.5f), new Color(0.4f, 0.45f, 0.5f));
-            c.AddComponent<PlateCounter>();
+            c.AddComponent<PlateCounter>().BuildVisualStack();
         }
 
         private DeliveryCounter BuildDeliveryCounter()
@@ -267,7 +299,7 @@ namespace KitchenChaos.Core
             // 出餐铃铛标识（金色小球）
             GameObject bell = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             Collider bcol = bell.GetComponent<Collider>();
-            if (bcol != null) { bcol.enabled = false; Destroy(bcol); }
+            if (bcol != null) { bcol.enabled = false; DestroyImmediate(bcol); }
             bell.name = "Bell";
             bell.transform.SetParent(c.transform, false);
             bell.transform.localPosition = new Vector3(0.3f, 0.64f, -0.3f);
@@ -307,6 +339,8 @@ namespace KitchenChaos.Core
             }
         }
 
+#endif
+
         private void ResetKitchen()
         {
             Visual.FeedbackFX.Clear();
@@ -324,14 +358,13 @@ namespace KitchenChaos.Core
             Visual.VisualFactory.ReleaseMaterials();
         }
 
-        // ---------------- 玩家 ----------------
-
+#if UNITY_EDITOR
         private void BuildPlayer()
         {
             GameObject p = new GameObject("Player");
             p.transform.SetParent(transform, false);
             p.layer = LayerMask.NameToLayer("Ignore Raycast");
-            p.transform.position = new Vector3(0f, 0.05f, 0f);
+            p.transform.position = new Vector3(0f, 0.05f, -0.6f);
 
             CharacterController cc = p.AddComponent<CharacterController>();
             cc.height = 1.7f;
@@ -341,27 +374,23 @@ namespace KitchenChaos.Core
 
             player = p.AddComponent<PlayerController>();
             ChefModel chef = p.AddComponent<ChefModel>();
-            player.Initialize(Camera.main, chef);
+            player.BuildSceneAnchors();
+            chef.Build();
+            p.transform.rotation = Quaternion.Euler(0f, 180f, 0f);
         }
 
         // ---------------- 系统 ----------------
 
         private void BuildSystems()
         {
-            TimerSystem timer = gameObject.AddComponent<TimerSystem>();
-            OrderSystem orders = gameObject.AddComponent<OrderSystem>();
-            ScoreManager score = gameObject.AddComponent<ScoreManager>();
+            gameObject.AddComponent<TimerSystem>();
+            gameObject.AddComponent<OrderSystem>();
+            gameObject.AddComponent<ScoreManager>();
             GameManager gm = gameObject.AddComponent<GameManager>();
             gm.roundDuration = roundDuration;
             gm.startReputation = startReputation;
-
-            GameplayHUD hud = gameObject.AddComponent<GameplayHUD>();
-
-            List<Recipe> recipes = new List<Recipe>(Resources.LoadAll<Recipe>("Recipes"));
-            if (recipes == null || recipes.Count == 0) recipes = RecipeFactory.CreateDefaultRecipes();
-
-            gm.Initialize(timer, orders, score);
-            orders.Initialize(recipes);
+            gameObject.AddComponent<GameplayHUD>();
         }
+#endif
     }
 }

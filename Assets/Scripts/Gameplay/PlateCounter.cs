@@ -10,7 +10,7 @@ namespace KitchenChaos.Gameplay
     {
         [SerializeField] private int plateCount = 4;
         [SerializeField] private Transform stackAnchor;
-        private readonly List<GameObject> plateVisuals = new List<GameObject>();
+        [SerializeField] private List<GameObject> plateVisuals = new List<GameObject>();
         private int initialPlateCount;
         private bool initialized;
 
@@ -27,18 +27,11 @@ namespace KitchenChaos.Gameplay
             initialized = true;
         }
 
-        private void BuildVisualStack()
+        public void BuildVisualStack()
         {
             if (stackAnchor == null) stackAnchor = transform.Find("ItemAnchor");
-            while (plateVisuals.Count > plateCount)
-            {
-                int last = plateVisuals.Count - 1;
-                GameObject disk = plateVisuals[last];
-                plateVisuals.RemoveAt(last);
-                if (disk == null) continue;
-                disk.SetActive(false);
-                Destroy(disk);
-            }
+            for (int i = 0; i < plateVisuals.Count; i++)
+                if (plateVisuals[i] != null) plateVisuals[i].SetActive(i < plateCount);
             for (int i = plateVisuals.Count; i < plateCount; i++)
             {
                 GameObject disk = VisualFactory.CreateProp("plate-dinner");
@@ -100,8 +93,9 @@ namespace KitchenChaos.Gameplay
 
         private Vector3 StackTop()
         {
-            if (plateVisuals.Count > 0 && plateVisuals[plateVisuals.Count - 1] != null)
-                return plateVisuals[plateVisuals.Count - 1].transform.position;
+            int top = Mathf.Min(plateCount, plateVisuals.Count) - 1;
+            if (top >= 0 && plateVisuals[top] != null)
+                return plateVisuals[top].transform.position;
             return transform.position + Vector3.up * 0.6f;
         }
 

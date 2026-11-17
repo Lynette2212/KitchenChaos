@@ -48,7 +48,8 @@ namespace KitchenChaos.EditorTools
         {
             Vector3 position = station.transform.position;
             Vector3 offset;
-            if (Mathf.Abs(position.z) > 2f) offset = Vector3.back * Mathf.Sign(position.z) * 0.85f;
+            if (station is PrepCounter && position.x < -2.5f) offset = Vector3.right * 0.85f;
+            else if (Mathf.Abs(position.z) > 2f) offset = Vector3.back * Mathf.Sign(position.z) * 0.85f;
             else if (Mathf.Abs(position.x) > 2.5f) offset = Vector3.left * Mathf.Sign(position.x) * 0.85f;
             else offset = Vector3.back * 0.85f;
             Vector3 stand = position + offset;
@@ -129,6 +130,8 @@ namespace KitchenChaos.EditorTools
             Face(bun.transform.position);
             RefreshTarget();
             Expect(player.CurrentTarget == null, "station out of reach is not targetable");
+            foreach (PrepCounter station in Object.FindObjectsByType<PrepCounter>(FindObjectsSortMode.None))
+                FocusStation(station);
 
             player.ResetForDay();
             Expect(UseStation(Container(IngredientType.Bun)) && player.HasItem, "top-down interaction takes an ingredient");
@@ -176,6 +179,24 @@ namespace KitchenChaos.EditorTools
 
         private static void VerifyPlatePickup()
         {
+            NewRun();
+            Transform stack = plates.transform.Find("ItemAnchor");
+            Transform topPlate = stack.GetChild(stack.childCount - 1);
+            Vector3 originalPosition = topPlate.localPosition;
+            Quaternion originalRotation = topPlate.localRotation;
+            Vector3 originalScale = topPlate.localScale;
+            Vector3 authoredPosition = originalPosition + new Vector3(0.08f, 0.02f, 0.04f);
+            Quaternion authoredRotation = Quaternion.Euler(0f, 23f, 0f);
+            Vector3 authoredScale = originalScale * 0.85f;
+            topPlate.SetLocalPositionAndRotation(authoredPosition, authoredRotation);
+            topPlate.localScale = authoredScale;
+            Expect(UseStation(plates) && !topPlate.gameObject.activeSelf, "taking a plate hides the authored stock object");
+            Expect(UseStation(plates) && topPlate.gameObject.activeSelf, "returning a plate reuses the authored stock object");
+            plates.ResetStation();
+            Expect(topPlate.localPosition == authoredPosition && Quaternion.Angle(topPlate.localRotation, authoredRotation) < 0.01f
+                && topPlate.localScale == authoredScale, "stock reset preserves edited plate position rotation and scale");
+            topPlate.SetLocalPositionAndRotation(originalPosition, originalRotation);
+            topPlate.localScale = originalScale;
             NewRun();
             Expect(UseStation(Container(IngredientType.MeatPatty)) && player.HasItem, "take a raw patty before the plate");
             int stock = plates.PlateCount;

@@ -49,9 +49,17 @@ namespace KitchenChaos.Visual
         public static void ReleaseMaterials()
         {
             foreach (Material material in materials.Values)
-                if (material != null) Object.Destroy(material);
+                if (material != null)
+                {
+                    if (Application.isPlaying) Object.Destroy(material);
+                    else Object.DestroyImmediate(material);
+                }
             foreach (Material material in surfaces.Values)
-                if (material != null) Object.Destroy(material);
+                if (material != null)
+                {
+                    if (Application.isPlaying) Object.Destroy(material);
+                    else Object.DestroyImmediate(material);
+                }
             materials.Clear();
             surfaces.Clear();
             prefabs.Clear();

@@ -35,6 +35,21 @@ namespace KitchenChaos.EditorTools
         public static void RunBatch()
         {
             if (!Application.isBatchMode) throw new InvalidOperationException("RunBatch is for a separate batch-mode Editor, not an open working scene.");
+            BeginRun();
+        }
+
+        public static void RunWindowed()
+        {
+            if (Application.isBatchMode) throw new InvalidOperationException("Windowed input checks require an interactive Editor.");
+            for (int i = 0; i < UnityEngine.SceneManagement.SceneManager.sceneCount; i++)
+                if (UnityEngine.SceneManagement.SceneManager.GetSceneAt(i).isDirty)
+                    throw new InvalidOperationException("Save scene changes before starting automated checks.");
+            BeginRun();
+            EditorWindow.GetWindow(typeof(Editor).Assembly.GetType("UnityEditor.GameView")).Focus();
+        }
+
+        private static void BeginRun()
+        {
             SessionState.SetBool(SessionKey, true);
             SessionState.SetFloat(SessionKey + ".Start", (float)EditorApplication.timeSinceStartup);
             // 用正式场景：Unity 退出时会记住当前场景，临时空场景会让下次打开项目只剩空白。
@@ -69,6 +84,7 @@ namespace KitchenChaos.EditorTools
                 delivery = UnityEngine.Object.FindAnyObjectByType<DeliveryCounter>();
                 VerifySceneAndRules();
                 VerifyArtAssets();
+                VerifyInputSystem();
                 VerifyTopDown();
                 VerifyPlatePickup();
                 VerifyMistakeFeedback();

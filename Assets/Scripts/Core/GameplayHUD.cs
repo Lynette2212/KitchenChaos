@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using KitchenChaos.Data;
 using KitchenChaos.Gameplay;
 using KitchenChaos.Audio;
@@ -80,9 +81,11 @@ namespace KitchenChaos.Core
 
         private void Update()
         {
-            bool alt = Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt);
-            if (Input.GetKeyDown(KeyCode.F11) ||
-                (alt && (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))))
+            PollPointer();
+            Keyboard keyboard = Keyboard.current;
+            bool enter = keyboard != null && (keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame);
+            bool alt = keyboard != null && (keyboard.leftAltKey.isPressed || keyboard.rightAltKey.isPressed);
+            if ((keyboard != null && keyboard.f11Key.wasPressedThisFrame) || (alt && enter))
                 ToggleFullscreen();
             toasts.RemoveAll(t => Time.unscaledTime - t.time > 3.5f);
             if (gm == null) return;
@@ -98,23 +101,23 @@ namespace KitchenChaos.Core
                 observedState = gm.State;
             }
             UpdateJuice();
+            if (keyboard == null) return;
             if (confirmMenu)
             {
-                if (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.P) || Input.GetKeyDown(KeyCode.N)) confirmMenu = false;
-                else if (Input.GetKeyDown(KeyCode.Y)) ReturnMenu();
+                if (keyboard.escapeKey.wasPressedThisFrame || keyboard.pKey.wasPressedThisFrame || keyboard.nKey.wasPressedThisFrame) confirmMenu = false;
+                else if (keyboard.yKey.wasPressedThisFrame) ReturnMenu();
                 return;
             }
-            bool enter = Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter);
             if (gm.State == GameState.Ready && enter) StartJourney();
             else if ((gm.State == GameState.Playing || gm.State == GameState.Paused) &&
-                     (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.P))) gm.TogglePause();
+                     (keyboard.escapeKey.wasPressedThisFrame || keyboard.pKey.wasPressedThisFrame)) gm.TogglePause();
             else if (gm.State == GameState.DayComplete)
             {
-                if (Input.GetKeyDown(KeyCode.Alpha1) || Input.GetKeyDown(KeyCode.Keypad1)) SelectUpgrade(0);
-                else if (Input.GetKeyDown(KeyCode.Alpha2) || Input.GetKeyDown(KeyCode.Keypad2)) SelectUpgrade(1);
-                else if (Input.GetKeyDown(KeyCode.Alpha3) || Input.GetKeyDown(KeyCode.Keypad3)) SelectUpgrade(2);
+                if (keyboard.digit1Key.wasPressedThisFrame || keyboard.numpad1Key.wasPressedThisFrame) SelectUpgrade(0);
+                else if (keyboard.digit2Key.wasPressedThisFrame || keyboard.numpad2Key.wasPressedThisFrame) SelectUpgrade(1);
+                else if (keyboard.digit3Key.wasPressedThisFrame || keyboard.numpad3Key.wasPressedThisFrame) SelectUpgrade(2);
             }
-            else if ((gm.State == GameState.GameOver || gm.State == GameState.Victory) && Input.GetKeyDown(KeyCode.R)) StartJourney();
+            else if ((gm.State == GameState.GameOver || gm.State == GameState.Victory) && keyboard.rKey.wasPressedThisFrame) StartJourney();
         }
 
         private void StartJourney()
@@ -234,6 +237,78 @@ namespace KitchenChaos.Core
             }
         }
 
+        private Vector2 pointerPosition;
+        private bool pointerDown, pointerUp, pointerHeld;
+        private Rect? pointerCapture;
+
+        private void OnApplicationFocus(bool focused)
+        {
+            if (!focused) SetPointerState(new Vector2(-1f, -1f), false, false, false);
+        }
+
+        private void PollPointer()
+        {
+            Mouse mouse = Mouse.current;
+            if (mouse == null || !Application.isFocused || Cursor.lockState == CursorLockMode.Locked || Screen.width <= 0 || Screen.height <= 0)
+            {
+                SetPointerState(new Vector2(-1f, -1f), false, false, false);
+                return;
+            }
+            Vector2 screen = mouse.position.ReadValue();
+            SetPointerState(new Vector2(screen.x * Width / Screen.width, (Screen.height - screen.y) * Height / Screen.height),
+                mouse.leftButton.wasPressedThisFrame, mouse.leftButton.wasReleasedThisFrame, mouse.leftButton.isPressed);
+        }
+
+        private void SetPointerState(Vector2 position, bool down, bool up, bool held)
+        {
+            if (pointerUp || (!held && !up && !down)) pointerCapture = null;
+            pointerPosition = position;
+            pointerDown = down;
+            pointerUp = up;
+            pointerHeld = held;
+        }
+
+        private bool PointerControl(Rect rect, bool enabled, out bool hovered, out bool dragging)
+        {
+            hovered = enabled && rect.Contains(pointerPosition);
+            dragging = false;
+            if (!enabled) return false;
+            if (pointerDown && hovered && !pointerCapture.HasValue)
+            {
+                pointerCapture = rect;
+                pointerDown = false;
+            }
+            bool captured = pointerCapture.HasValue && pointerCapture.Value == rect;
+            dragging = captured && (pointerHeld || pointerUp);
+            if (!captured || !pointerUp) return false;
+            pointerCapture = null;
+            pointerUp = false;
+            return hovered;
+        }
+
+        // Runtime IMGUI receives no pointer events when only the Input System is enabled.
+        private bool MenuButton(Rect rect, string text, GUIStyle style)
+        {
+            if (Event.current.type != EventType.Repaint) return false;
+            bool clicked = PointerControl(rect, GUI.enabled, out bool hovered, out bool dragging);
+            style.Draw(rect, new GUIContent(text), hovered, dragging, false, false);
+            return clicked;
+        }
+
+        private float VolumeSlider(Rect rect, float value)
+        {
+            if (Event.current.type != EventType.Repaint) return value;
+            PointerControl(rect, GUI.enabled, out bool hovered, out bool dragging);
+            float thumbWidth = sliderThumb.fixedWidth;
+            if (dragging) value = Mathf.InverseLerp(rect.x + thumbWidth * 0.5f, rect.xMax - thumbWidth * 0.5f, pointerPosition.x);
+            Rect track = new Rect(rect.x, rect.center.y - sliderTrack.fixedHeight * 0.5f, rect.width, sliderTrack.fixedHeight);
+            Rect thumb = new Rect(rect.x + (rect.width - thumbWidth) * value,
+                rect.center.y - sliderThumb.fixedHeight * 0.5f, thumbWidth, sliderThumb.fixedHeight);
+            sliderTrack.Draw(track, GUIContent.none, hovered, dragging, false, false);
+            sliderThumb.Draw(thumb, GUIContent.none, hovered, dragging, false, false);
+            return value;
+        }
+
         private void DrawReady()
         {
             Fill(new Rect(0, 0, Width, Height), Backdrop);
@@ -264,12 +339,12 @@ namespace KitchenChaos.Core
             Fill(new Rect(812, 428, 420, 4), Orange);
             Text(new Rect(836, 450, 372, 36), "五天，一间好餐厅。", heading, Navy);
             Text(new Rect(836, 495, 372, 64), "完成当天交单目标即可收工。\n挑选升级，再迎接明天的客人。", body, Muted);
-            if (GUI.Button(new Rect(836, 577, 372, 54), "开始营业    Enter", primary)) StartJourney();
+            if (MenuButton(new Rect(836, 577, 372, 54), "开始营业    Enter", primary)) StartJourney();
             Text(new Rect(836, 640, 372, 22), "本地自动记录 · 无需联网", micro, Muted);
             Text(new Rect(48, 682, 950, 24), "BGM: Morning Brew / Cozy Music Sampler — Spaceyyy · 已调整音量与边缘淡化 · 食材与音效采样: Kenney (CC0)", micro, Muted);
-            if (GUI.Button(new Rect(1012, 680, 104, 28), "音乐来源", secondary))
+            if (MenuButton(new Rect(1012, 680, 104, 28), "音乐来源", secondary))
                 Application.OpenURL("https://opengameart.org/content/cozy-music-sampler-%E2%80%94-7-seamless-loops-lofi-farm-fantasy-tavern-halloween-winter-caf%C3%A9-space");
-            if (GUI.Button(new Rect(1124, 680, 108, 28), "CC BY 4.0", secondary))
+            if (MenuButton(new Rect(1124, 680, 108, 28), "CC BY 4.0", secondary))
                 Application.OpenURL("https://creativecommons.org/licenses/by/4.0/");
         }
 
@@ -286,16 +361,16 @@ namespace KitchenChaos.Core
             float musicLevel = audio != null ? Mathf.Clamp01(audio.musicVolume) : 0f;
             float sfxLevel = audio != null ? Mathf.Clamp01(audio.volume) : 0f;
             Text(new Rect(418, 323, 104, 28), "音乐", body, Navy);
-            musicLevel = GUI.HorizontalSlider(new Rect(528, 331, 250, 24), musicLevel, 0f, 1f, sliderTrack, sliderThumb);
+            musicLevel = VolumeSlider(new Rect(528, 331, 250, 24), musicLevel);
             Text(new Rect(798, 323, 64, 28), Mathf.RoundToInt(musicLevel * 100f) + "%", small, Muted);
             Text(new Rect(418, 381, 104, 28), "音效", body, Navy);
-            sfxLevel = GUI.HorizontalSlider(new Rect(528, 389, 250, 24), sfxLevel, 0f, 1f, sliderTrack, sliderThumb);
+            sfxLevel = VolumeSlider(new Rect(528, 389, 250, 24), sfxLevel);
             Text(new Rect(798, 381, 64, 28), Mathf.RoundToInt(sfxLevel * 100f) + "%", small, Muted);
             if (audio != null) { audio.musicVolume = musicLevel; audio.volume = sfxLevel; }
             GUI.enabled = enabled;
-            if (GUI.Button(new Rect(418, 463, 444, 54), "继续营业    Esc / P", primary)) gm.TogglePause();
-            if (GUI.Button(new Rect(418, 535, 216, 46), "回到主菜单", secondary)) confirmMenu = true;
-            if (GUI.Button(new Rect(646, 535, 216, 46), "全屏切换    F11", secondary)) ToggleFullscreen();
+            if (MenuButton(new Rect(418, 463, 444, 54), "继续营业    Esc / P", primary)) gm.TogglePause();
+            if (MenuButton(new Rect(418, 535, 216, 46), "回到主菜单", secondary)) confirmMenu = true;
+            if (MenuButton(new Rect(646, 535, 216, 46), "全屏切换    F11", secondary)) ToggleFullscreen();
         }
 
         private void DrawDayComplete()
@@ -317,7 +392,7 @@ namespace KitchenChaos.Core
             if (choices != null) for (int i = 0; i < Mathf.Min(3, choices.Length); i++)
             {
                 float x = 174 + i * 318;
-                bool chosen = GUI.Button(new Rect(x, 328, 296, 242), GUIContent.none, upgradeCard);
+                bool chosen = MenuButton(new Rect(x, 328, 296, 242), string.Empty, upgradeCard);
                 Text(new Rect(x + 22, 345, 252, 24), "厨房升级  /  0" + (i + 1), small, Orange);
                 Text(new Rect(x + 22, 380, 252, 42), CampaignRules.UpgradeName(choices[i]), heading, Navy);
                 Text(new Rect(x + 22, 431, 252, 86), CampaignRules.UpgradeDescription(choices[i]), body, Muted);
@@ -325,7 +400,7 @@ namespace KitchenChaos.Core
                 if (chosen) { SelectUpgrade(i); return; }
             }
             Text(new Rect(174, 584, 716, 30), "达标 1 星 · 零失误 +1 星 · 剩余时间不少于 25% 再 +1 星", small, Muted);
-            if (GUI.Button(new Rect(954, 582, 152, 34), "回到主菜单", secondary)) confirmMenu = true;
+            if (MenuButton(new Rect(954, 582, 152, 34), "回到主菜单", secondary)) confirmMenu = true;
         }
 
         private void DrawEnding(bool victory)
@@ -341,8 +416,8 @@ namespace KitchenChaos.Core
             Stat(292, 391, 232, "到达章节", gm.Day + " / " + CampaignRules.TotalDays);
             Stat(524, 391, 232, "最高连击", (score != null ? score.BestCombo : 0) + " 连");
             Stat(756, 391, 232, "旅程星级", gm.TotalStars + " / " + CampaignRules.TotalDays * 3);
-            if (GUI.Button(new Rect(292, 520, 336, 54), "再开一程    R", primary)) StartJourney();
-            if (GUI.Button(new Rect(648, 520, 340, 54), "回到主菜单", secondary)) confirmMenu = true;
+            if (MenuButton(new Rect(292, 520, 336, 54), "再开一程    R", primary)) StartJourney();
+            if (MenuButton(new Rect(648, 520, 340, 54), "回到主菜单", secondary)) confirmMenu = true;
             Text(new Rect(292, 589, 696, 24), "本地纪录   " + gm.BestScore + " 分   /   到达第 " + gm.BestDay + " 天   /   通关 " + gm.TotalWins + " 次", small, Muted);
         }
 
@@ -352,8 +427,8 @@ namespace KitchenChaos.Core
             Fill(new Rect(390, 222, 500, 4), Orange);
             Text(new Rect(422, 242, 436, 46), "离开本次旅程？", heading, Navy);
             Text(new Rect(422, 300, 436, 68), "返回主菜单会清空当前厨房，\n本次旅程无法继续。已保存的本地纪录保留。", body, Muted);
-            if (GUI.Button(new Rect(422, 390, 436, 42), "保留现场    Esc / N", secondary)) confirmMenu = false;
-            if (GUI.Button(new Rect(422, 444, 436, 34), "确认离开    Y", primary)) ReturnMenu();
+            if (MenuButton(new Rect(422, 390, 436, 42), "保留现场    Esc / N", secondary)) confirmMenu = false;
+            if (MenuButton(new Rect(422, 444, 436, 34), "确认离开    Y", primary)) ReturnMenu();
         }
 
         private void Stat(float x, float y, float width, string caption, string value)

@@ -10,8 +10,11 @@ namespace KitchenChaos.Visual
     {
         public enum ChefMood { None, Focus, Happy, Oops }
 
-        private Transform visual;
+        [SerializeField] private Transform visual;
         private Renderer[] renderers = System.Array.Empty<Renderer>();
+        private Vector3 baseLocalPosition;
+        private Quaternion baseLocalRotation;
+        private Vector3 baseLocalScale;
         private float phase;
         private float moveBlend;
         private float mistakeTimer;
@@ -64,11 +67,19 @@ namespace KitchenChaos.Visual
             moodTimer = Mathf.Max(0f, seconds);
         }
 
-        private void Awake() => Build();
+        private void Awake()
+        {
+            if (visual == null) return;
+            renderers = visual.GetComponentsInChildren<Renderer>(true);
+            baseLocalPosition = visual.localPosition;
+            baseLocalRotation = visual.localRotation;
+            baseLocalScale = visual.localScale;
+        }
 
+#if UNITY_EDITOR
         public void Build()
         {
-            if (visual != null) return;
+            if (Application.isPlaying || visual != null) return;
             visual = new GameObject("ChefVisual").transform;
             visual.SetParent(transform, false);
 
@@ -87,7 +98,7 @@ namespace KitchenChaos.Visual
             renderers = model.GetComponentsInChildren<Renderer>(true);
             if (renderers.Length == 0)
             {
-                Destroy(model);
+                DestroyImmediate(model);
                 BuildFallback();
                 return;
             }
@@ -137,7 +148,7 @@ namespace KitchenChaos.Visual
             go.transform.localPosition = position;
             go.transform.localScale = scale;
             Collider collider = go.GetComponent<Collider>();
-            if (collider != null) { collider.enabled = false; Destroy(collider); }
+            if (collider != null) { collider.enabled = false; DestroyImmediate(collider); }
             go.GetComponent<Renderer>().sharedMaterial = material;
             return go;
         }
@@ -147,7 +158,7 @@ namespace KitchenChaos.Visual
             foreach (Collider collider in model.GetComponentsInChildren<Collider>(true))
             {
                 collider.enabled = false;
-                Destroy(collider);
+                DestroyImmediate(collider);
             }
         }
 
@@ -157,6 +168,7 @@ namespace KitchenChaos.Visual
             foreach (Renderer renderer in renderers) bounds.Encapsulate(renderer.bounds);
             return bounds;
         }
+#endif
 
         private void Update()
         {
@@ -169,8 +181,9 @@ namespace KitchenChaos.Visual
             {
                 mistakeTimer = Mathf.Max(0f, mistakeTimer - dt);
                 float shake = Mathf.Sin(mistakeTimer * 70f) * 22f;
-                visual.localPosition = new Vector3(0f, Mathf.Abs(Mathf.Sin(mistakeTimer * 26f)) * 0.05f, 0f);
-                visual.localRotation = Quaternion.Euler(0f, shake, Mathf.Sin(mistakeTimer * 55f) * 3f);
+                visual.localPosition = baseLocalPosition + new Vector3(0f, Mathf.Abs(Mathf.Sin(mistakeTimer * 26f)) * 0.05f, 0f);
+                visual.localRotation = baseLocalRotation * Quaternion.Euler(0f, shake, Mathf.Sin(mistakeTimer * 55f) * 3f);
+                visual.localScale = baseLocalScale;
                 return;
             }
             if (celebrateTimer > 0f)
@@ -178,21 +191,22 @@ namespace KitchenChaos.Visual
                 celebrateTimer = Mathf.Max(0f, celebrateTimer - dt);
                 float t = 1f - celebrateTimer / 0.75f;
                 float lift = Mathf.Sin(Mathf.Clamp01(t) * Mathf.PI) * 0.26f;
-                visual.localPosition = new Vector3(0f, lift, 0f);
-                visual.localRotation = Quaternion.Euler(0f, 0f, Mathf.Sin(t * Mathf.PI * 2f) * 7f);
-                visual.localScale = new Vector3(1f + lift * 0.2f, 1f - lift * 0.35f, 1f + lift * 0.2f);
+                visual.localPosition = baseLocalPosition + new Vector3(0f, lift, 0f);
+                visual.localRotation = baseLocalRotation * Quaternion.Euler(0f, 0f, Mathf.Sin(t * Mathf.PI * 2f) * 7f);
+                visual.localScale = Vector3.Scale(baseLocalScale,
+                    new Vector3(1f + lift * 0.2f, 1f - lift * 0.35f, 1f + lift * 0.2f));
                 return;
             }
 
-            visual.localScale = Vector3.one;
+            visual.localScale = baseLocalScale;
             phase += dt * (working ? 15f : Mathf.Lerp(2f, 12f, moveBlend));
             float bob = working ? Mathf.Abs(Mathf.Sin(phase)) * 0.055f : Mathf.Abs(Mathf.Sin(phase)) * 0.03f * moveBlend;
             float lean = working ? Mathf.Sin(phase) * 7f : carrying ? -3f : 0f;
             if (pulseTimer > 0f) lean -= Mathf.Sin((1f - pulseTimer / 0.2f) * Mathf.PI) * 5f;
             float rock = working ? 0f : Mathf.Sin(phase) * 2.5f * moveBlend;
             float waddle = working ? Mathf.Sin(phase * 0.5f) * 2f : Mathf.Sin(phase * 0.5f) * 4f * moveBlend;
-            visual.localPosition = new Vector3(0f, bob, 0f);
-            visual.localRotation = Quaternion.Euler(lean, waddle, rock);
+            visual.localPosition = baseLocalPosition + new Vector3(0f, bob, 0f);
+            visual.localRotation = baseLocalRotation * Quaternion.Euler(lean, waddle, rock);
         }
     }
 }

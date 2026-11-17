@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
 using KitchenChaos.Data;
 using KitchenChaos.Core;
 using KitchenChaos.Audio;
@@ -107,7 +108,7 @@ namespace KitchenChaos.Gameplay
         private void Update()
         {
             chopping = false;
-            if (Input.GetKey(KeyCode.E)) AdvanceProcessing(Time.deltaTime);
+            if (Keyboard.current?.eKey.isPressed == true) AdvanceProcessing(Time.deltaTime);
         }
 
         public void AdvanceProcessing(float deltaTime)

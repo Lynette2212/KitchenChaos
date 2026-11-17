@@ -1,3 +1,4 @@
+#if UNITY_EDITOR
 using UnityEngine;
 using KitchenChaos.Visual;
 
@@ -79,7 +80,7 @@ namespace KitchenChaos.Core
             go.transform.localScale = scale;
             Collider collider = go.GetComponent<Collider>();
             collider.enabled = false;
-            Destroy(collider);
+            DestroyImmediate(collider);
             go.GetComponent<Renderer>().sharedMaterial = material;
             return go;
         }
@@ -104,3 +105,4 @@ namespace KitchenChaos.Core
 
     }
 }
+#endif
